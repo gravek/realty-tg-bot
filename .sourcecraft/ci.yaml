@@ -43,8 +43,8 @@ workflows:
               YC_SA_ID: ${{ tokens.SERVICE_CONNECTION_WITH_TOKEN.service_account_id }}  
               YC_FOLDER_ID: ${{ tokens.SERVICE_CONNECTION_WITH_TOKEN.folder_id }} 
               YC_FUNCTION_NAME: ${{ cubes.format-name.outputs.function_name }}
-              YC_FUNCTION_RUNTIME: nodejs22
-              YC_FUNCTION_ENTRYPOINT: index.handler
+              YC_FUNCTION_RUNTIME: python312
+              YC_FUNCTION_ENTRYPOINT: handler.handler
               SOURCE_PATH: "./src"
               ENVIRONMENT: "BOT_TOKEN=${{ inputs.bot-token }}"
               PUBLIC: true
@@ -57,12 +57,12 @@ workflows:
               - |
                 # Check if TG_BOT_TOKEN is set and not equal to placeholder
                 if [ -n "$TG_BOT_TOKEN" ] && [ "$TG_BOT_TOKEN" != "YOUR_TG_BOT_TOKEN" ]; then
-                    echo "TG_BOT_TOKEN is properly set"
-                    echo "Setting webhook..."
-                    curl --request POST --url https://api.telegram.org/bot$TG_BOT_TOKEN/setWebhook?url=${{cubes.deploy-func.outputs.invoke_url}}
-                    echo "Webhook set!"
+                  echo "TG_BOT_TOKEN is properly set"
+                  echo "Setting webhook..."
+                  curl --request POST --url https://api.telegram.org/bot$TG_BOT_TOKEN/setWebhook?url=${{cubes.deploy-func.outputs.invoke_url}}
+                  echo "Webhook set!"
                 else
-                    echo "TG_BOT_TOKEN is either not set or equals placeholder value"
+                  echo "TG_BOT_TOKEN is either not set or equals placeholder value"
                 fi
 
           - name: get-outputs
@@ -76,5 +76,3 @@ workflows:
               paths:
                 - invoke_url.txt
                 - deployment_location.txt
-
-            
