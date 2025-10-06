@@ -1,6 +1,6 @@
 import asyncio
 import logging
-from main import process_event
+from src.main import process_event
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
