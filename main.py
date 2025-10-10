@@ -3,7 +3,7 @@ import logging
 import os
 import json
 from aiogram import Bot, Dispatcher, Router, F
-from aiogram.types import Message, CallbackQuery
+from aiogram.types import Message, CallbackQuery, Update
 from aiogram.filters import Command, CommandStart
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.context import FSMContext
@@ -307,8 +307,10 @@ async def process_event(event, context):
         # Parse update from event body
         update_data = json.loads(event['body'])
         
+        # Create Update object
+        update = Update(**update_data)
+        
         # Process update
-        update = dp.resolve_update(update_data)
         await dp.feed_update(bot, update)
         
         return {
