@@ -1,8 +1,8 @@
 on:
-  push:
-   - workflows: deploy-tg-bot-workflow
-     filter: 
-       branches: ["master", "main"]
+  # push:
+  #  - workflows: deploy-tg-bot-workflow
+  #    filter: 
+  #      branches: ["master", "main"]
   pull_request:
     - workflows: deploy-tg-bot-workflow
       filter:
