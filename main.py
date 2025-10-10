@@ -11,6 +11,8 @@ from aiogram.methods import SetWebhook
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger()
+logger.setLevel(logging.INFO)
 
 # Initialize bot and dispatcher
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
@@ -38,6 +40,7 @@ user_preferences = {}
 # Command handlers
 @router.message(CommandStart())
 async def command_start_handler(message: Message) -> None:
+    logger.info(f"Received /start command from user {message.from_user.id}")
     user_id = message.from_user.id
     # Reset user state
     if user_id in user_states:
@@ -67,9 +70,11 @@ async def command_start_handler(message: Message) -> None:
 "
         "Или отправьте команду /find для пошагового подбора."
     )
+    logger.info(f"Sent welcome message to user {user_id}")
 
 @router.message(Command("help"))
 async def command_help_handler(message: Message) -> None:
+    logger.info(f"Received /help command from user {message.from_user.id}")
     await message.answer(
         "🤖 Я AI-консультант по недвижимости
 
@@ -85,9 +90,11 @@ async def command_help_handler(message: Message) -> None:
 "
         "Просто опишите, какую недвижимость вы ищете, и я подберу для вас лучшие варианты!"
     )
+    logger.info(f"Sent help message to user {message.from_user.id}")
 
 @router.message(Command("find"))
 async def command_find_handler(message: Message, state: FSMContext) -> None:
+    logger.info(f"Received /find command from user {message.from_user.id}")
     user_id = message.from_user.id
     await state.set_state(RealtyStates.asking_location)
     await message.answer("📍 В каком городе или районе вы хотите искать недвижимость?")
@@ -95,6 +102,7 @@ async def command_find_handler(message: Message, state: FSMContext) -> None:
 # Handle free text requests
 @router.message(F.text)
 async def handle_text_message(message: Message, state: FSMContext) -> None:
+    logger.info(f"Received text message from user {message.from_user.id}: {message.text}")
     user_id = message.from_user.id
     current_state = await state.get_state()
     
@@ -304,19 +312,22 @@ async def process_event(event, context):
     Process event from Yandex Cloud Functions
     """
     try:
+        logger.info(f"Processing event: {event}")
+        
         # Parse update from event body
         update_data = json.loads(event['body'])
-        logging.info(f"Received update: {update_data}")
+        logger.info(f"Parsed update data: {update_data}")
         
         # Process update using feed_raw_update
         await dp.feed_raw_update(bot, update_data)
         
+        logger.info("Update processed successfully")
         return {
             'statusCode': 200,
             'body': 'OK'
         }
     except Exception as e:
-        logging.error(f"Error processing event: {e}", exc_info=True)
+        logger.error(f"Error processing event: {e}", exc_info=True)
         return {
             'statusCode': 500,
             'body': str(e)
