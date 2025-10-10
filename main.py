@@ -3,7 +3,7 @@ import logging
 import os
 import json
 from aiogram import Bot, Dispatcher, Router, F
-from aiogram.types import Message, CallbackQuery, Update
+from aiogram.types import Message, CallbackQuery
 from aiogram.filters import Command, CommandStart
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.context import FSMContext
@@ -11,6 +11,8 @@ from aiogram.methods import SetWebhook
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger()
+logger.setLevel(logging.INFO)
 
 # Initialize bot and dispatcher
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
@@ -38,6 +40,7 @@ user_preferences = {}
 # Command handlers
 @router.message(CommandStart())
 async def command_start_handler(message: Message) -> None:
+    logger.info(f"Received /start command from user {message.from_user.id}")
     user_id = message.from_user.id
     # Reset user state
     if user_id in user_states:
@@ -46,48 +49,34 @@ async def command_start_handler(message: Message) -> None:
         del user_preferences[user_id]
     
     await message.answer(
-        "Здравствуйте! 👋
-
-"
+        "Здравствуйте! 👋\n\n"
         "Я AI-консультант по недвижимости. Я помогу вам подобрать идеальное жилье, "
-        "соответствующее вашим требованиям и бюджету.
-
-"
-        "Для начала подбора просто опишите, какую недвижимость вы ищете, или ответьте на несколько вопросов.
-
-"
-        "Напишите, например:
-"
-        "- "Ищу квартиру в Москве, бюджет 5 млн"
-"
-        "- "Нужен дом в Подмосковье до 10 млн"
-"
-        "- "Хочу студию в центре Санкт-Петербурга"
-
-"
+        "соответствующее вашим требованиям и бюджету.\n\n"
+        "Для начала подбора просто опишите, какую недвижимость вы ищете, или ответьте на несколько вопросов.\n\n"
+        "Напишите, например:\n"
+        "- \"Ищу квартиру в Москве, бюджет 5 млн\"\n"
+        "- \"Нужен дом в Подмосковье до 10 млн\"\n"
+        "- \"Хочу студию в центре Санкт-Петербурга\"\n\n"
         "Или отправьте команду /find для пошагового подбора."
     )
+    logger.info(f"Sent welcome message to user {user_id}")
 
 @router.message(Command("help"))
 async def command_help_handler(message: Message) -> None:
+    logger.info(f"Received /help command from user {message.from_user.id}")
     await message.answer(
-        "🤖 Я AI-консультант по недвижимости
-
-"
-        "Доступные команды:
-"
-        "/find - Пошаговый подбор недвижимости
-"
-        "/start - Начать сначала
-"
-        "/help - Показать эту справку
-
-"
+        "🤖 Я AI-консультант по недвижимости\n\n"
+        "Доступные команды:\n"
+        "/find - Пошаговый подбор недвижимости\n"
+        "/start - Начать сначала\n"
+        "/help - Показать эту справку\n\n"
         "Просто опишите, какую недвижимость вы ищете, и я подберу для вас лучшие варианты!"
     )
+    logger.info(f"Sent help message to user {message.from_user.id}")
 
 @router.message(Command("find"))
 async def command_find_handler(message: Message, state: FSMContext) -> None:
+    logger.info(f"Received /find command from user {message.from_user.id}")
     user_id = message.from_user.id
     await state.set_state(RealtyStates.asking_location)
     await message.answer("📍 В каком городе или районе вы хотите искать недвижимость?")
@@ -95,6 +84,7 @@ async def command_find_handler(message: Message, state: FSMContext) -> None:
 # Handle free text requests
 @router.message(F.text)
 async def handle_text_message(message: Message, state: FSMContext) -> None:
+    logger.info(f"Received text message from user {message.from_user.id}: {message.text}")
     user_id = message.from_user.id
     current_state = await state.get_state()
     
@@ -119,57 +109,29 @@ async def handle_text_message(message: Message, state: FSMContext) -> None:
 async def handle_free_text_request(message: Message) -> None:
     user_text = message.text
     await message.answer(
-        f"🔍 Я проанализировал ваш запрос: "{user_text}"
-
-"
-        "На основе вашего описания я могу предложить следующие варианты недвижимости:
-
-"
-        "🏠 Вариант 1: 
-"
-        "- Тип: Квартира
-"
-        "- Местоположение: Москва, район Центральный
-"
-        "- Цена: 4 800 000 ₽
-"
-        "- Площадь: 45 м²
-"
-        "- Комнат: 1
-"
-        "- [Подробнее] - ссылка на объект
-
-"
-        "🏘 Вариант 2:
-"
-        "- Тип: Квартира
-"
-        "- Местоположение: Москва, район Северный
-"
-        "- Цена: 5 200 000 ₽
-"
-        "- Площадь: 52 м²
-"
-        "- Комнат: 2
-"
-        "- [Подробнее] - ссылка на объект
-
-"
-        "🏢 Вариант 3:
-"
-        "- Тип: Апартаменты
-"
-        "- Местоположение: Москва, район Пресненский
-"
-        "- Цена: 6 500 000 ₽
-"
-        "- Площадь: 65 м²
-"
-        "- Комнат: 2
-"
-        "- [Подробнее] - ссылка на объект
-
-"
+        f"🔍 Я проанализировал ваш запрос: \"{user_text}\"\n\n"
+        "На основе вашего описания я могу предложить следующие варианты недвижимости:\n\n"
+        "🏠 Вариант 1: \n"
+        "- Тип: Квартира\n"
+        "- Местоположение: Москва, район Центральный\n"
+        "- Цена: 4 800 000 ₽\n"
+        "- Площадь: 45 м²\n"
+        "- Комнат: 1\n"
+        "- [Подробнее] - ссылка на объект\n\n"
+        "🏘 Вариант 2:\n"
+        "- Тип: Квартира\n"
+        "- Местоположение: Москва, район Северный\n"
+        "- Цена: 5 200 000 ₽\n"
+        "- Площадь: 52 м²\n"
+        "- Комнат: 2\n"
+        "- [Подробнее] - ссылка на объект\n\n"
+        "🏢 Вариант 3:\n"
+        "- Тип: Апартаменты\n"
+        "- Местоположение: Москва, район Пресненский\n"
+        "- Цена: 6 500 000 ₽\n"
+        "- Площадь: 65 м²\n"
+        "- Комнат: 2\n"
+        "- [Подробнее] - ссылка на объект\n\n"
         "Хотите получить больше вариантов? Напишите /find для детального подбора или уточните параметры поиска."
     )
 
@@ -178,11 +140,8 @@ async def handle_location_response(message: Message, state: FSMContext) -> None:
     await state.update_data(location=location)
     await state.set_state(RealtyStates.asking_property_type)
     await message.answer(
-        f"📍 Отлично! Вы выбрали: {location}
-
-"
-        "🏠 Какой тип недвижимости вас интересует?
-"
+        f"📍 Отлично! Вы выбрали: {location}\n\n"
+        "🏠 Какой тип недвижимости вас интересует?\n"
         "Например: квартира, дом, комната, таунхаус, апартаменты"
     )
 
@@ -191,11 +150,8 @@ async def handle_property_type_response(message: Message, state: FSMContext) -> 
     await state.update_data(property_type=property_type)
     await state.set_state(RealtyStates.asking_budget)
     await message.answer(
-        f"🏠 Тип недвижимости: {property_type}
-
-"
-        "💰 Какой у вас бюджет? Укажите сумму в рублях.
-"
+        f"🏠 Тип недвижимости: {property_type}\n\n"
+        "💰 Какой у вас бюджет? Укажите сумму в рублях.\n"
         "Например: 5000000 или 5 млн"
     )
 
@@ -213,11 +169,8 @@ async def handle_budget_response(message: Message, state: FSMContext) -> None:
     await state.update_data(budget=budget)
     await state.set_state(RealtyStates.asking_rooms)
     await message.answer(
-        f"💰 Бюджет: {budget} ₽
-
-"
-        "🛏 Сколько комнат вам нужно?
-"
+        f"💰 Бюджет: {budget} ₽\n\n"
+        "🛏 Сколько комнат вам нужно?\n"
         "Например: 1, 2, 3, студия"
     )
 
@@ -245,56 +198,28 @@ async def handle_rooms_response(message: Message, state: FSMContext) -> None:
     area_range = "40-55" if rooms in ["1", "студия"] else "60-90"
     
     await message.answer(
-        f"🛏 Спасибо за информацию!
-
-"
-        f"Ваши предпочтения:
-"
-        f"📍 Местоположение: {location}
-"
-        f"🏠 Тип недвижимости: {property_type}
-"
-        f"💰 Бюджет: {budget} ₽
-"
-        f"🛏 Комнат: {rooms}
-
-"
-        f"На основе этих данных я подобрал для вас следующие варианты:
-
-"
-        f"🏠 Вариант 1: 
-"
-        f"- {property_type} в {location}
-"
-        f"- Цена: {price_95:,} ₽
-"
-        f"- Площадь: {area_range} м²
-"
-        f"- [Подробнее] - ссылка на объект
-
-"
-        f"🏘 Вариант 2:
-"
-        f"- {property_type} в {location}
-"
-        f"- Цена: {price_100:,} ₽
-"
-        f"- Площадь: {area_range} м²
-"
-        f"- [Подробнее] - ссылка на объект
-
-"
-        f"🏢 Вариант 3:
-"
-        f"- {property_type} в {location}
-"
-        f"- Цена: {price_105:,} ₽
-"
-        f"- Площадь: {area_range} м²
-"
-        f"- [Подробнее] - ссылка на объект
-
-"
+        f"🛏 Спасибо за информацию!\n\n"
+        f"Ваши предпочтения:\n"
+        f"📍 Местоположение: {location}\n"
+        f"🏠 Тип недвижимости: {property_type}\n"
+        f"💰 Бюджет: {budget} ₽\n"
+        f"🛏 Комнат: {rooms}\n\n"
+        f"На основе этих данных я подобрал для вас следующие варианты:\n\n"
+        f"🏠 Вариант 1: \n"
+        f"- {property_type} в {location}\n"
+        f"- Цена: {price_95:,} ₽\n"
+        f"- Площадь: {area_range} м²\n"
+        f"- [Подробнее] - ссылка на объект\n\n"
+        f"🏘 Вариант 2:\n"
+        f"- {property_type} в {location}\n"
+        f"- Цена: {price_100:,} ₽\n"
+        f"- Площадь: {area_range} м²\n"
+        f"- [Подробнее] - ссылка на объект\n\n"
+        f"🏢 Вариант 3:\n"
+        f"- {property_type} в {location}\n"
+        f"- Цена: {price_105:,} ₽\n"
+        f"- Площадь: {area_range} м²\n"
+        f"- [Подробнее] - ссылка на объект\n\n"
         f"Хотите изменить параметры поиска? Напишите /find для нового поиска или /start чтобы начать сначала."
     )
 
@@ -304,21 +229,22 @@ async def process_event(event, context):
     Process event from Yandex Cloud Functions
     """
     try:
+        logger.info(f"Processing event: {event}")
+        
         # Parse update from event body
         update_data = json.loads(event['body'])
+        logger.info(f"Parsed update data: {update_data}")
         
-        # Create Update object
-        update = Update(**update_data)
+        # Process update using feed_raw_update
+        await dp.feed_raw_update(bot, update_data)
         
-        # Process update
-        await dp.feed_update(bot, update)
-        
+        logger.info("Update processed successfully")
         return {
             'statusCode': 200,
-            'body': ''
+            'body': 'OK'
         }
     except Exception as e:
-        logging.error(f"Error processing event: {e}")
+        logger.error(f"Error processing event: {e}", exc_info=True)
         return {
             'statusCode': 500,
             'body': str(e)
