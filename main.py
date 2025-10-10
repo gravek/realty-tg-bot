@@ -2,7 +2,6 @@ import asyncio
 import logging
 import os
 import json
-import sys
 from aiogram import Bot, Dispatcher, Router, F
 from aiogram.types import Message, CallbackQuery
 from aiogram.filters import Command, CommandStart
@@ -12,32 +11,20 @@ from aiogram.methods import SetWebhook
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger()
-logger.setLevel(logging.INFO)
-
-logger.info("Starting main.py initialization")
 
 # Initialize bot and dispatcher
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
-logger.info(f"BOT_TOKEN environment variable: {'set' if BOT_TOKEN else 'not set'}")
-
 if not BOT_TOKEN:
-    logger.error("BOT_TOKEN environment variable is not set")
     raise ValueError("BOT_TOKEN environment variable is not set")
 
-logger.info("Creating bot instance")
 bot = Bot(token=BOT_TOKEN)
-logger.info("Creating dispatcher instance")
 dp = Dispatcher()
 
 # Router for handling messages
-logger.info("Creating router instance")
 router = Router()
-logger.info("Including router in dispatcher")
 dp.include_router(router)
 
 # States for conversation
-logger.info("Defining RealtyStates")
 class RealtyStates(StatesGroup):
     asking_location = State()
     asking_property_type = State()
@@ -45,16 +32,12 @@ class RealtyStates(StatesGroup):
     asking_rooms = State()
 
 # In-memory storage for user data (in production, use a database)
-logger.info("Initializing user_states and user_preferences")
 user_states = {}
 user_preferences = {}
 
 # Command handlers
-logger.info("Registering command handlers")
-
 @router.message(CommandStart())
 async def command_start_handler(message: Message) -> None:
-    logger.info(f"Received /start command from user {message.from_user.id}")
     user_id = message.from_user.id
     # Reset user state
     if user_id in user_states:
@@ -84,11 +67,9 @@ async def command_start_handler(message: Message) -> None:
 "
         "Или отправьте команду /find для пошагового подбора."
     )
-    logger.info(f"Sent welcome message to user {user_id}")
 
 @router.message(Command("help"))
 async def command_help_handler(message: Message) -> None:
-    logger.info(f"Received /help command from user {message.from_user.id}")
     await message.answer(
         "🤖 Я AI-консультант по недвижимости
 
@@ -104,11 +85,9 @@ async def command_help_handler(message: Message) -> None:
 "
         "Просто опишите, какую недвижимость вы ищете, и я подберу для вас лучшие варианты!"
     )
-    logger.info(f"Sent help message to user {message.from_user.id}")
 
 @router.message(Command("find"))
 async def command_find_handler(message: Message, state: FSMContext) -> None:
-    logger.info(f"Received /find command from user {message.from_user.id}")
     user_id = message.from_user.id
     await state.set_state(RealtyStates.asking_location)
     await message.answer("📍 В каком городе или районе вы хотите искать недвижимость?")
@@ -116,7 +95,6 @@ async def command_find_handler(message: Message, state: FSMContext) -> None:
 # Handle free text requests
 @router.message(F.text)
 async def handle_text_message(message: Message, state: FSMContext) -> None:
-    logger.info(f"Received text message from user {message.from_user.id}: {message.text}")
     user_id = message.from_user.id
     current_state = await state.get_state()
     
@@ -326,23 +304,19 @@ async def process_event(event, context):
     Process event from Yandex Cloud Functions
     """
     try:
-        logger.info(f"Processing event: {event}")
-        
         # Parse update from event body
         update_data = json.loads(event['body'])
-        logger.info(f"Parsed update data: {update_data}")
         
-        # Process update using feed_raw_update
-        logger.info("Calling dp.feed_raw_update")
-        await dp.feed_raw_update(bot, update_data)
-        logger.info("Update processed successfully")
+        # Process update
+        update = dp.resolve_update(update_data)
+        await dp.feed_update(bot, update)
         
         return {
             'statusCode': 200,
-            'body': 'OK'
+            'body': ''
         }
     except Exception as e:
-        logger.error(f"Error processing event: {e}", exc_info=True)
+        logging.error(f"Error processing event: {e}")
         return {
             'statusCode': 500,
             'body': str(e)
@@ -360,5 +334,4 @@ async def main():
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
-    logger.info("Starting main function")
     asyncio.run(main())

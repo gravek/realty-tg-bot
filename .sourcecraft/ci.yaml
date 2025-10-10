@@ -37,18 +37,6 @@ workflows:
                 func_name=$(echo "$YC_BOT_NAME" | tr '[:upper:]' '[:lower:]' | tr -d '_')
                 echo "function_name=$func_name" >> $SOURCECRAFT_OUTPUT
                 
-          - name: prepare-files
-            script:
-              - |
-                # Создаем директорию для функции
-                mkdir -p function_package
-                # Копируем необходимые файлы
-                cp handler.py function_package/
-                cp main.py function_package/
-                cp requirements.txt function_package/
-                # Проверяем, что файлы скопированы
-                ls -la function_package/
-                
           - name: deploy-func
             env:
               ID_TOKEN: ${{ tokens.SERVICE_CONNECTION_WITH_TOKEN.id_token }}
@@ -57,7 +45,7 @@ workflows:
               YC_FUNCTION_NAME: ${{ cubes.format-name.outputs.function_name }}
               YC_FUNCTION_RUNTIME: python312
               YC_FUNCTION_ENTRYPOINT: handler.handler
-              SOURCE_PATH: "./function_package"
+              SOURCE_PATH: "."
               ENVIRONMENT: "BOT_TOKEN=${{ inputs.bot-token }}"
               PUBLIC: true
             image: cr.yandex/sourcecraft/yc-function:latest
