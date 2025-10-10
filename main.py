@@ -2,6 +2,7 @@ import asyncio
 import logging
 import os
 import json
+import sys
 from aiogram import Bot, Dispatcher, Router, F
 from aiogram.types import Message, CallbackQuery
 from aiogram.filters import Command, CommandStart
@@ -14,19 +15,29 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
+logger.info("Starting main.py initialization")
+
 # Initialize bot and dispatcher
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
+logger.info(f"BOT_TOKEN environment variable: {'set' if BOT_TOKEN else 'not set'}")
+
 if not BOT_TOKEN:
+    logger.error("BOT_TOKEN environment variable is not set")
     raise ValueError("BOT_TOKEN environment variable is not set")
 
+logger.info("Creating bot instance")
 bot = Bot(token=BOT_TOKEN)
+logger.info("Creating dispatcher instance")
 dp = Dispatcher()
 
 # Router for handling messages
+logger.info("Creating router instance")
 router = Router()
+logger.info("Including router in dispatcher")
 dp.include_router(router)
 
 # States for conversation
+logger.info("Defining RealtyStates")
 class RealtyStates(StatesGroup):
     asking_location = State()
     asking_property_type = State()
@@ -34,10 +45,13 @@ class RealtyStates(StatesGroup):
     asking_rooms = State()
 
 # In-memory storage for user data (in production, use a database)
+logger.info("Initializing user_states and user_preferences")
 user_states = {}
 user_preferences = {}
 
 # Command handlers
+logger.info("Registering command handlers")
+
 @router.message(CommandStart())
 async def command_start_handler(message: Message) -> None:
     logger.info(f"Received /start command from user {message.from_user.id}")
@@ -319,9 +333,10 @@ async def process_event(event, context):
         logger.info(f"Parsed update data: {update_data}")
         
         # Process update using feed_raw_update
+        logger.info("Calling dp.feed_raw_update")
         await dp.feed_raw_update(bot, update_data)
-        
         logger.info("Update processed successfully")
+        
         return {
             'statusCode': 200,
             'body': 'OK'
@@ -345,4 +360,5 @@ async def main():
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
+    logger.info("Starting main function")
     asyncio.run(main())
