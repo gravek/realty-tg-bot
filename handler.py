@@ -1,6 +1,6 @@
 import asyncio
 import logging
-import nest_asyncio  # Для nested loops в serverless
+# import nest_asyncio  # Для nested loops в serverless
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
