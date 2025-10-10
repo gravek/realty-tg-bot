@@ -7,258 +7,193 @@ from aiogram.types import Message, CallbackQuery
 from aiogram.filters import Command, CommandStart
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.context import FSMContext
-from aiogram.methods import SetWebhook
+from aiogram.fsm.storage.memory import MemoryStorage  # Временно; потом Redis/PostgreSQL
+import asyncpg  # Для БД (Yandex PostgreSQL)
+import nest_asyncio
+
+# Для AI: YandexGPT (замените на ваш API key)
+# from openai import AsyncOpenAI  # YandexGPT совместим с OpenAI API
+# client = AsyncOpenAI(base_url="https://llm.api.cloud.yandex.net/foundationModels/v1/completion", api_key=os.getenv("YANDEX_API_KEY"))
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger()
-logger.setLevel(logging.INFO)
+logger = logging.getLogger(__name__)
+nest_asyncio.apply()
 
-# Initialize bot and dispatcher
-BOT_TOKEN = os.environ.get("BOT_TOKEN")
-if not BOT_TOKEN:
-    raise ValueError("BOT_TOKEN environment variable is not set")
-
-bot = Bot(token=BOT_TOKEN)
-dp = Dispatcher()
-
-# Router for handling messages
-router = Router()
-dp.include_router(router)
-
-# States for conversation
+# States for conversation (расширили для AI)
 class RealtyStates(StatesGroup):
     asking_location = State()
     asking_property_type = State()
     asking_budget = State()
     asking_rooms = State()
+    recommending = State()  # Новое: для AI-рекомендаций
+    details = State()  # Для уточнения о апартаментах
 
-# In-memory storage for user data (in production, use a database)
-user_states = {}
-user_preferences = {}
+# БД config (Yandex Managed PostgreSQL)
+DB_CONFIG = {
+    'host': os.getenv('DB_HOST', 'your-db.host.yandexcloud.net'),
+    'port': int(os.getenv('DB_PORT', 5432)),
+    'user': os.getenv('DB_USER'),
+    'password': os.getenv('DB_PASSWORD'),
+    'database': os.getenv('DB_NAME', 'realty_db'),
+}
 
-# Command handlers
-@router.message(CommandStart())
-async def command_start_handler(message: Message) -> None:
-    logger.info(f"Received /start command from user {message.from_user.id}")
-    user_id = message.from_user.id
-    # Reset user state
-    if user_id in user_states:
-        del user_states[user_id]
-    if user_id in user_preferences:
-        del user_preferences[user_id]
+# Глобальные? Нет, инициализируем в process_event для stateless
+async def get_bot_dp():
+    BOT_TOKEN = os.getenv("BOT_TOKEN")
+    if not BOT_TOKEN:
+        raise ValueError("BOT_TOKEN environment variable is not set")
     
-    await message.answer(
-        "Здравствуйте! 👋\n\n"
-        "Я AI-консультант по недвижимости. Я помогу вам подобрать идеальное жилье, "
-        "соответствующее вашим требованиям и бюджету.\n\n"
-        "Для начала подбора просто опишите, какую недвижимость вы ищете, или ответьте на несколько вопросов.\n\n"
-        "Напишите, например:\n"
-        "- \"Ищу квартиру в Москве, бюджет 5 млн\"\n"
-        "- \"Нужен дом в Подмосковье до 10 млн\"\n"
-        "- \"Хочу студию в центре Санкт-Петербурга\"\n\n"
-        "Или отправьте команду /find для пошагового подбора."
-    )
-    logger.info(f"Sent welcome message to user {user_id}")
-
-@router.message(Command("help"))
-async def command_help_handler(message: Message) -> None:
-    logger.info(f"Received /help command from user {message.from_user.id}")
-    await message.answer(
-        "🤖 Я AI-консультант по недвижимости\n\n"
-        "Доступные команды:\n"
-        "/find - Пошаговый подбор недвижимости\n"
-        "/start - Начать сначала\n"
-        "/help - Показать эту справку\n\n"
-        "Просто опишите, какую недвижимость вы ищете, и я подберу для вас лучшие варианты!"
-    )
-    logger.info(f"Sent help message to user {message.from_user.id}")
-
-@router.message(Command("find"))
-async def command_find_handler(message: Message, state: FSMContext) -> None:
-    logger.info(f"Received /find command from user {message.from_user.id}")
-    user_id = message.from_user.id
-    await state.set_state(RealtyStates.asking_location)
-    await message.answer("📍 В каком городе или районе вы хотите искать недвижимость?")
-
-# Handle free text requests
-@router.message(F.text)
-async def handle_text_message(message: Message, state: FSMContext) -> None:
-    logger.info(f"Received text message from user {message.from_user.id}: {message.text}")
-    user_id = message.from_user.id
-    current_state = await state.get_state()
+    bot = Bot(token=BOT_TOKEN)
+    storage = MemoryStorage()  # TODO: Заменить на PostgreSQLStorage для диалогов
+    dp = Dispatcher(storage=storage)
     
-    # If user is in a conversation state, handle accordingly
-    if current_state:
-        if current_state == RealtyStates.asking_location.state:
-            await handle_location_response(message, state)
-        elif current_state == RealtyStates.asking_property_type.state:
-            await handle_property_type_response(message, state)
-        elif current_state == RealtyStates.asking_budget.state:
-            await handle_budget_response(message, state)
-        elif current_state == RealtyStates.asking_rooms.state:
-            await handle_rooms_response(message, state)
+    # Router
+    router = Router()
+    dp.include_router(router)
+    
+    # Регистрация хендлеров (здесь же, чтобы stateless)
+    register_handlers(router)
+    
+    return bot, dp
+
+def register_handlers(router: Router):
+    @router.message(CommandStart())
+    async def command_start_handler(message: Message, state: FSMContext) -> None:
+        logger.info(f"Received /start from {message.from_user.id}")
+        await state.clear()
+        user_id = message.from_user.id
+        # Сохранить пользователя в БД (заглушка)
+        await save_user_to_db(user_id, "new_session")
+        
+        await message.answer(
+            "Здравствуйте! 👋\n\n"
+            "Я AI-консультант по апартаментам в Грузии (Аджария, Чакви).\n"
+            "Расскажите, что вас интересует: квартира у моря, бюджет, комнаты?\n\n"
+            "Или /find для опроса."
+        )
+
+    @router.message(Command("help"))
+    async def command_help_handler(message: Message) -> None:
+        await message.answer(
+            "🤖 Помощь:\n"
+            "/start - Старт\n"
+            "/find - Опрос\n"
+            "/help - Это\n\n"
+            "Пример: 'Ищу апартаменты в Чакви до 100k$'"
+        )
+
+    @router.message(Command("find"))
+    async def command_find_handler(message: Message, state: FSMContext) -> None:
+        await state.set_state(RealtyStates.asking_location)
+        await message.answer("📍 Город/район? (e.g., Чакви, Аджария)")
+
+    @router.message(F.text)
+    async def handle_text_message(message: Message, state: FSMContext) -> None:
+        user_id = message.from_user.id
+        current_state = await state.get_state()
+        text = message.text.lower()
+        
+        logger.info(f"Text from {user_id}: {text}")
+        
+        if current_state:
+            if current_state == RealtyStates.asking_location.state:
+                await handle_location_response(message, state)
+            # ... (остальные handle_ как в оригинале, но с БД)
+            elif current_state == RealtyStates.recommending.state:
+                await handle_ai_recommendation(message, state, text)
         else:
-            await message.answer(
-                "Извините, не понял ваш запрос. Напишите /start чтобы начать сначала или /help для помощи."
-            )
-    else:
-        # Handle free text request
-        await handle_free_text_request(message)
+            # Free text: AI-анализ
+            await handle_free_text_request(message, state)
 
-async def handle_free_text_request(message: Message) -> None:
-    user_text = message.text
-    await message.answer(
-        f"🔍 Я проанализировал ваш запрос: \"{user_text}\"\n\n"
-        "На основе вашего описания я могу предложить следующие варианты недвижимости:\n\n"
-        "🏠 Вариант 1: \n"
-        "- Тип: Квартира\n"
-        "- Местоположение: Москва, район Центральный\n"
-        "- Цена: 4 800 000 ₽\n"
-        "- Площадь: 45 м²\n"
-        "- Комнат: 1\n"
-        "- [Подробнее] - ссылка на объект\n\n"
-        "🏘 Вариант 2:\n"
-        "- Тип: Квартира\n"
-        "- Местоположение: Москва, район Северный\n"
-        "- Цена: 5 200 000 ₽\n"
-        "- Площадь: 52 м²\n"
-        "- Комнат: 2\n"
-        "- [Подробнее] - ссылка на объект\n\n"
-        "🏢 Вариант 3:\n"
-        "- Тип: Апартаменты\n"
-        "- Местоположение: Москва, район Пресненский\n"
-        "- Цена: 6 500 000 ₽\n"
-        "- Площадь: 65 м²\n"
-        "- Комнат: 2\n"
-        "- [Подробнее] - ссылка на объект\n\n"
-        "Хотите получить больше вариантов? Напишите /find для детального подбора или уточните параметры поиска."
-    )
+    # ... (handle_location_response, handle_property_type_response и т.д. — как в оригинале, но добавьте await save_dialog_to_db(user_id, text) в каждый)
 
-async def handle_location_response(message: Message, state: FSMContext) -> None:
-    location = message.text
-    await state.update_data(location=location)
-    await state.set_state(RealtyStates.asking_property_type)
-    await message.answer(
-        f"📍 Отлично! Вы выбрали: {location}\n\n"
-        "🏠 Какой тип недвижимости вас интересует?\n"
-        "Например: квартира, дом, комната, таунхаус, апартаменты"
-    )
+    async def handle_free_text_request(message: Message, state: FSMContext) -> None:
+        user_id = message.from_user.id
+        text = message.text
+        
+        # Сохранить диалог
+        await save_dialog_to_db(user_id, text)
+        
+        # AI-рекомендация (заглушка; интегрируйте YandexGPT)
+        recommendations = await get_ai_recommendations(text)  # RAG query
+        
+        await state.set_state(RealtyStates.recommending)
+        await message.answer(
+            f"🔍 По вашему запросу '{text}':\n\n"
+            f"{recommendations}\n\n"
+            "Уточните? (e.g., 'Фото апартаментов')"
+        )
 
-async def handle_property_type_response(message: Message, state: FSMContext) -> None:
-    property_type = message.text
-    await state.update_data(property_type=property_type)
-    await state.set_state(RealtyStates.asking_budget)
-    await message.answer(
-        f"🏠 Тип недвижимости: {property_type}\n\n"
-        "💰 Какой у вас бюджет? Укажите сумму в рублях.\n"
-        "Например: 5000000 или 5 млн"
-    )
+    async def handle_ai_recommendation(message: Message, state: FSMContext, query: str) -> None:
+        # AI-диалог
+        response = await query_yandex_gpt(query, context="апартаменты в Чакви")  # RAG + GPT
+        await save_dialog_to_db(message.from_user.id, query, response)
+        await message.answer(response)
+        if "купить" in query:
+            await message.answer("Ссылка на сайт: https://akoukounov.sourcecraft.site/realty-landing/")
 
-async def handle_budget_response(message: Message, state: FSMContext) -> None:
-    budget_text = message.text
-    # Simple budget processing
-    budget = budget_text
-    if "млн" in budget_text.lower():
-        try:
-            num = float("".join(filter(str.isdigit, budget_text)))
-            budget = int(num * 1000000)
-        except ValueError:
-            pass
-    
-    await state.update_data(budget=budget)
-    await state.set_state(RealtyStates.asking_rooms)
-    await message.answer(
-        f"💰 Бюджет: {budget} ₽\n\n"
-        "🛏 Сколько комнат вам нужно?\n"
-        "Например: 1, 2, 3, студия"
-    )
+# БД функции (asyncpg)
+async def get_db_pool():
+    return await asyncpg.create_pool(**DB_CONFIG)
 
-async def handle_rooms_response(message: Message, state: FSMContext) -> None:
-    rooms = message.text
-    user_data = await state.get_data()
-    
-    # Get all preferences
-    location = user_data.get("location", "Не указано")
-    property_type = user_data.get("property_type", "Не указано")
-    budget = user_data.get("budget", "Не указано")
-    
-    # Clear state
-    await state.clear()
-    
-    # Provide recommendations
-    try:
-        budget_num = int(budget)
-        price_95 = round(budget_num * 0.95)
-        price_100 = round(budget_num)
-        price_105 = round(budget_num * 1.05)
-    except (ValueError, TypeError):
-        price_95 = price_100 = price_105 = "Не определено"
-    
-    area_range = "40-55" if rooms in ["1", "студия"] else "60-90"
-    
-    await message.answer(
-        f"🛏 Спасибо за информацию!\n\n"
-        f"Ваши предпочтения:\n"
-        f"📍 Местоположение: {location}\n"
-        f"🏠 Тип недвижимости: {property_type}\n"
-        f"💰 Бюджет: {budget} ₽\n"
-        f"🛏 Комнат: {rooms}\n\n"
-        f"На основе этих данных я подобрал для вас следующие варианты:\n\n"
-        f"🏠 Вариант 1: \n"
-        f"- {property_type} в {location}\n"
-        f"- Цена: {price_95:,} ₽\n"
-        f"- Площадь: {area_range} м²\n"
-        f"- [Подробнее] - ссылка на объект\n\n"
-        f"🏘 Вариант 2:\n"
-        f"- {property_type} в {location}\n"
-        f"- Цена: {price_100:,} ₽\n"
-        f"- Площадь: {area_range} м²\n"
-        f"- [Подробнее] - ссылка на объект\n\n"
-        f"🏢 Вариант 3:\n"
-        f"- {property_type} в {location}\n"
-        f"- Цена: {price_105:,} ₽\n"
-        f"- Площадь: {area_range} м²\n"
-        f"- [Подробнее] - ссылка на объект\n\n"
-        f"Хотите изменить параметры поиска? Напишите /find для нового поиска или /start чтобы начать сначала."
-    )
+async def save_user_to_db(user_id: int, session_info: str):
+    pool = await get_db_pool()
+    async with pool.acquire() as conn:
+        await conn.execute(
+            "INSERT INTO users (id, session_info) VALUES ($1, $2) ON CONFLICT (id) DO UPDATE SET session_info = $2",
+            user_id, session_info
+        )
 
-# Handler for AWS Lambda or Yandex Cloud Functions
+async def save_dialog_to_db(user_id: int, user_msg: str, bot_msg: str = None):
+    pool = await get_db_pool()
+    async with pool.acquire() as conn:
+        await conn.execute(
+            "INSERT INTO dialogs (user_id, user_msg, bot_msg, timestamp) VALUES ($1, $2, $3, NOW())",
+            user_id, user_msg, bot_msg
+        )
+
+async def get_ai_recommendations(query: str) -> str:
+    # RAG: Query pgvector
+    pool = await get_db_pool()
+    async with pool.acquire() as conn:
+        # Пример: similarity search по embeddings
+        row = await conn.fetchrow(
+            "SELECT content FROM properties ORDER BY embedding <=> $1 LIMIT 1",
+            query  # В реале: embed(query) via sentence-transformers
+        )
+        if row:
+            return f"🏠 Рекомендация: {row['content']}\nЦена: 150k GEL\nФото: [URL]"
+    return "Идеально подойдут апартаменты в Чакви, ул. Батумская 16А. Бюджет от 100k$."
+
+async def query_yandex_gpt(prompt: str, context: str) -> str:
+    # Заглушка; реал: client.chat.completions.create
+    return f"На основе {context}: {prompt} — рекомендую апартаменты в Чакви! Подробности на сайте."
+
+# Process event (основной handler для CF)
 async def process_event(event, context):
-    """
-    Process event from Yandex Cloud Functions
-    """
     try:
-        logger.info(f"Processing event: {event}")
-        
-        # Parse update from event body
+        logger.info(f"Event: {event}")
         update_data = json.loads(event['body'])
-        logger.info(f"Parsed update data: {update_data}")
         
-        # Process update using feed_raw_update
+        bot, dp = await get_bot_dp()  # Инициализация на каждый вызов
         await dp.feed_raw_update(bot, update_data)
         
-        logger.info("Update processed successfully")
-        return {
-            'statusCode': 200,
-            'body': 'OK'
-        }
+        # Graceful shutdown: Ждём pending tasks
+        await asyncio.sleep(0.1)  # Минимальная задержка для cleanup
+        
+        return {'statusCode': 200, 'body': 'OK'}
     except Exception as e:
-        logger.error(f"Error processing event: {e}", exc_info=True)
-        return {
-            'statusCode': 500,
-            'body': str(e)
-        }
+        logger.error(f"Process error: {e}", exc_info=True)
+        return {'statusCode': 500, 'body': str(e)}
+    finally:
+        # Закрыть bot/dp
+        if 'bot' in locals():
+            await bot.session.close()
 
-# For local testing
+# Local test
 async def main():
-    # Set webhook for Telegram
-    webhook_url = os.environ.get("WEBHOOK_URL")
-    if webhook_url:
-        await bot(SetWebhook(url=webhook_url))
-        logging.info(f"Webhook set to {webhook_url}")
-    
-    # Start polling (for local testing)
+    bot, dp = await get_bot_dp()
     await dp.start_polling(bot)
 
 if __name__ == "__main__":

@@ -7,7 +7,7 @@ on:
     - workflows: deploy-tg-bot-workflow
       filter:
         source_branches: ["**", "!test**"]
-        target_branches: "main"
+        target_branches: "grok"
 
 tokens:
   SERVICE_CONNECTION_WITH_TOKEN:
