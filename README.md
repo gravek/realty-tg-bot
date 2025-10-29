@@ -1,146 +1,34 @@
-# Инструкция по развертыванию Telegram-бота на Python
+# Realty Telegram Bot
 
-### Настройте интеграцию с Yandex Cloud
+A Telegram bot that uses OpenAI's Assistant API to respond to messages through GitHub Actions.
 
-В настройках вашей организации SourceCraft создайте сервисное подключение (Settings->Service Connections). Для развертывания Telegram-бота подойдут настройки по умолчанию.
 
-{% note info "SourceCraft грант на сервисы облака Yandex Cloud" %}
+## Features
 
-Если вы находитесь в персональной организации SourceCraft, вам будет предложено активировать грант на сервисы облака.
+- Handles Telegram messages through webhooks
+- Integrates with OpenAI Assistant API
+- Shows typing indicator while processing
+- Supports markdown formatting in responses
 
-Персональная организация создается автоматически при регистрации в SourceCraft и заканчивается на Personal Organization (SourceСraft), в описании указано Created By SourceCraft.
 
-{% endnote %}
+## Setup
 
-### Зарегистрируйте Telegram-бота
+1. Create a new Telegram bot through [@BotFather](https://t.me/botfather) and get the bot token.
 
-Зарегистрируйте вашего бота в Telegram и получите токен.
+2. Set up repository secrets in GitHub:
+   - `TELEGRAM_BOT_TOKEN`: Your Telegram bot token
+   - `OPENAI_API_KEY`: Your OpenAI API key
+   - `OPENAI_ASSISTANT_ID`: ID of your OpenAI assistant
 
-1. Для регистрации нового бота запустите бота [BotFather](https://t.me/BotFather) и отправьте команду:
-
-   ```
-   /newbot
-   ```
-
-2. Задайте имя (name) и имя пользователя (username) для бота. Имя пользователя должно оканчиваться на `...Bot` или `..._bot`.
-
-   Например:
-
-   * name: demo-bot
-
-   * username: demobot
-
-   В результате вы получите токен. Сохраните его, он потребуется на следующих шагах.
-
-### Запустите процесс сборки и развертывания вашего бота
-
-Перейдите в секцию CI/CD для вашего репозитория и запустите CI/CD процесс (кнопка New Launch), где в качестве параметров bot-username и bot-token укажите имя и токен, который вы получили на предыдущем шаге от BotFather.
-
-После успешного завершения CI/CD процесса необходимо убедиться что ваша cloud function доступна публично без аутентификации.
-
-Местоположение, куда был развернута cloud function, можно увидеть кликнув по кубику get-outputs. Необходимо перейти по ссылке вида https://console.yandex.cloud/folders/***/functions/functions/d4ei109bh4c15agt8k5t/overview и включить опцию "Публичная функция" для работы с Telegram.
-
-## Функционал бота
-
-Бот реализует AI-консультанта по недвижимости со следующими возможностями:
-
-1. **Свободное описание предпочтений** - пользователь может описать своими словами, какую недвижимость он ищет
-2. **Пошаговый подбор** - бот поэтапно собирает информацию о предпочтениях пользователя:
-   - Местоположение
-   - Тип недвижимости
-   - Бюджет
-   - Количество комнат
-3. **Рекомендации** - на основе собранной информации бот предоставляет персонализированные рекомендации
-
-## Технические детали
-
-- Бот реализован на Python с использованием библиотеки aiogram
-- Развертывается как Yandex Cloud Function
-- Использует FSM (Finite State Machine) для управления состоянием диалога
-- Хранит данные пользователей в памяти (в production рекомендуется использовать базу данных)
-
-## Устранение проблем
-
-### Ошибка "No module named 'main'"
-
-Если при запуске функции в облаке возникает ошибка "No module named 'main'", убедитесь, что:
-
-1. Файл handler.py корректно импортирует функцию process_event из main.py
-2. Структура файлов в репозитории соответствует ожидаемой:
-   - src/
-     - handler.py
-     - main.py
-     - requirements.txt
-
-3. После внесения изменений запустите CI/CD процесс заново для обновления функции в облаке
-
-### Файлы не обновляются в функции
-
-Если файлы не обновляются в функции после CI/CD процесса:
-
-1. Проверьте, что в конфигурации CI/CD (.sourcecraft/ci.yaml) правильно указаны пути к файлам
-2. Убедитесь, что параметр SOURCE_PATH указывает на директорию с файлами (обычно "./src")
-3. Проверьте, что YC_FUNCTION_ENTRYPOINT корректно указывает на точку входа (обычно "src.handler.handler")
-4. Запустите CI/CD процесс заново
-
-### **FAQ**
-
-1. Возможно ли не передавать bot-token.
-
-   Параметр bot-token является опциональным. Он необходим для автоматической привязки вашей cloud function к тг-боту. Если вы не передадите bot-token при первом запуске, то для регистрации бота вам необходимо выполнить привязку вашего публичного ендпоинта к тг-боту самостоятельно.
-
-2. Функция развернулась, но бот не работает.
-
-   Проверьте, что функция доступна по публичному адресу.
-
-3. В логах кубика Permission Denied.
-
-   Это сообщение выводится если не хватает прав у сервисного аккаунта. Для публикации функциии необходима [роль](https://yandex.cloud/ru/docs/functions/security/#functions-admin) `functions.admin`. Также вы можете опубликовать функцию в интерфейсе Yandex Cloud
-
-4. Какие значения можно передавать в кубик с образом **cr.yandex/sourcecraft/yc-function**
-
-   * Обязательные параметры
-
-     **YC_FUNCTION_NAME** - имя функции, /|[a-z][-a-z0-9]{1,61}[a-z0-9]/, уникальное имя в каталоге, если функция с таким именем существует, при запуске ci/cd процесса произойдет создание новой версии.
-
-     **YC_FUNCTION_RUNTIME** - идентификатор [среды выполнения](https://yandex.cloud/ru/docs/functions/concepts/runtime/#runtimes)
-
-     **YC_FUNCTION_ENTRYPOINT** - точка входа, для каждой среды выполнения она задается согласно [документации](https://yandex.cloud/ru/docs/functions/quickstart/create-function/)
-
-   * Другие параметры:
-
-     **SOURCE_PATH** - папка в репозитории откуда скопируются все файлы при развертывании новой версии функции
-
-     **ENVIRONMENT** - аналог yc cli параметра --environment
-
-     **PUBLIC** - делает функцию доступной публично, аналог yc cli параметра [allow-unauthenticated-invoke](https://yandex.cloud/ru/docs/cli/cli-ref/serverless/cli-ref/function/allow-unauthenticated-invoke), необходима роль functions.admin и выше для сервисного аккаунта.
-
-     Другие примеры использования кубика [https://sourcecraft.dev/yandex-cloud-examples/serverless-functions](https://sourcecraft.dev/yandex-cloud-examples/serverless-functions/)
-
-5. Не хватает нужных параметров для развертывания функции через кубик с образом **cr.yandex/sourcecraft/yc-function**
-
-   Кубик **yc-function** подходит для базовых сценариев развертывания и не покрывает каждый параметр настройки cloud function. Для более сложных сценариев развертывания рекомендуем воспользоваться кубиком **cr.yandex/sourcecraft/yc-cli** в котором вы можете использовать все возможности yc cli.
-
-   Пример:
-
-   ```
-   # Кубик с предустановленным Yandex Cloud CLI забирает из outputs 
-   # переменную IAM_TOKEN и использует ее для получения списка функций Cloud Functions.
-   - name: get-functions
-     env:
-       # Подставьте в блок для получения значений outputs имя кубика с
-       # IAM-токеном, например get-iam-token.
-       YC_IAM_TOKEN: ${{ cubes.<имя_кубика_с_IAM-токеном>.outputs.IAM_TOKEN }}
-       YC_FOLDER_ID: ${{ tokens.<имя_токена>.folder_id }}
-     image: 
-       name: cr.yandex/sourcecraft/yc-cli:latest
-       entrypoint: ""
-     script:
-       - |
-         yc config set folder-id $YC_FOLDER_ID
-         yc serverless function list
+3. Set up webhook for your Telegram bot:
+   ```bash
+   curl -F "url=<your-github-actions-webhook-url>" https://api.telegram.org/bot<your-bot-token>/setWebhook
    ```
 
-6. Я опытный пользователь GitHub могу ли я переиспользовать свои GitHub Actions в SourceCraft CI/CD
+## Required Environment Variables
 
-   Да, SourceCraft поддерживает запуск GitHub Actions. Также вы можете комбинировать несколько подходов в одном workflow, см. пример <https://sourcecraft.dev/sourcecraft/yc-ci-cd-serverless/browse/.sourcecraft/ci.yaml>
+```
+TELEGRAM_BOT_TOKEN=your_telegram_bot_token
+OPENAI_API_KEY=your_openai_api_key
+OPENAI_ASSISTANT_ID=your_assistant_id
+```
