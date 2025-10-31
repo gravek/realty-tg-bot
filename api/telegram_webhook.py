@@ -16,7 +16,7 @@ if not BOT_TOKEN:
 if not ASSISTANT_ID:
     raise ValueError("OPENAI_ASSISTANT_ID не установлен!")
 
-# === Асинхронная обработка сообщения ===
+# === Асинхронная обработка ===
 async def process_message(chat_id, message_text, message_id):
     bot = Bot(token=BOT_TOKEN)
     try:
@@ -35,7 +35,7 @@ async def process_message(chat_id, message_text, message_id):
             assistant_id=ASSISTANT_ID
         )
 
-        # Простой polling завершения
+        # Ожидание завершения
         import time
         while True:
             run_status = await asyncio.to_thread(
@@ -48,13 +48,13 @@ async def process_message(chat_id, message_text, message_id):
             time.sleep(1)
 
         if run_status.status != 'completed':
-            response = "Извини, не удалось получить ответ."
+            response = "Извини, произошла ошибка при обработке."
         else:
             messages = await asyncio.to_thread(
                 client.beta.threads.messages.list,
                 thread_id=thread.id
             )
-            response = messages.data[0].content[0].text.value
+            response = messages.data[0].content[0].text.value if messages.data else "Нет ответа."
 
         await bot.send_message(
             chat_id=chat_id,
@@ -83,7 +83,6 @@ def telegram_webhook(event, context=None):
                 'body': json.dumps({"status": "error", "message": "Empty body"})
             }
 
-        # Vercel может присылать base64
         if event.get('isBase64Encoded', False):
             body = base64.b64decode(body).decode('utf-8')
 
@@ -92,14 +91,13 @@ def telegram_webhook(event, context=None):
         if 'message' not in update or 'text' not in update['message']:
             return {
                 'statusCode': 200,
-                'body': json.dumps({"status": "ignored", "reason": "no text"})
+                'body': json.dumps({"status": "ignored", "reason": "no text message"})
             }
 
         chat_id = update['message']['chat']['id']
         text = update['message']['text']
         message_id = update['message']['message_id']
 
-        # Запуск асинхронного кода
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         result = loop.run_until_complete(process_message(chat_id, text, message_id))
@@ -120,3 +118,6 @@ def telegram_webhook(event, context=None):
             'statusCode': 500,
             'body': json.dumps({"status": "error", "message": str(e)})
         }
+
+# КЛЮЧЕВАЯ СТРОКА — Vercel ищет именно `handler`
+handler = telegram_webhook
