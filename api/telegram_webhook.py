@@ -1,102 +1,112 @@
-from http.server import BaseHTTPRequestHandler
 import json
 import os
 from telegram import Bot
 from openai import OpenAI
 import asyncio
-import sys
 
-# Initialize clients
+# Инициализация клиентов
 client = OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
 ASSISTANT_ID = os.getenv('OPENAI_ASSISTANT_ID')
+BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
 
-async def process_message(bot, chat_id, message_text, message_id):
+async def process_message(chat_id, message_text, message_id):
+    bot = Bot(token=BOT_TOKEN)
     try:
-        # Send typing action
         await bot.send_chat_action(chat_id=chat_id, action='typing')
-        
-        # Create OpenAI thread
+
+        # Создаём тред
         thread = client.beta.threads.create(
             messages=[{"role": "user", "content": message_text}]
         )
-        
-        # Run assistant
+
+        # Запускаем ассистента
         run = client.beta.threads.runs.create(
             thread_id=thread.id,
             assistant_id=ASSISTANT_ID
         )
-        
-        # Get response
-        messages = client.beta.threads.messages.list(thread_id=thread.id)
-        if messages.data:
-            response = messages.data[0].content[0].text.value
+
+        # Ждём завершения (простой polling)
+        import time
+        while True:
+            run_status = client.beta.threads.runs.retrieve(thread_id=thread.id, run_id=run.id)
+            if run_status.status in ['completed', 'failed', 'cancelled']:
+                break
+            time.sleep(1)
+
+        if run_status.status == 'failed':
+            response = "Извини, не удалось обработать запрос."
         else:
-            response = "Sorry, I couldn't generate a response."
-            
-        # Send response
+            messages = client.beta.threads.messages.list(thread_id=thread.id)
+            response = messages.data[0].content[0].text.value
+
         await bot.send_message(
             chat_id=chat_id,
             text=response,
             reply_to_message_id=message_id
         )
-        
+        return {"status": "ok"}
+
     except Exception as e:
-        error_message = f"Error processing message: {str(e)}"
-        print(error_message, file=sys.stderr)
+        error_msg = f"Ошибка: {str(e)}"
+        print(error_msg)
         await bot.send_message(
             chat_id=chat_id,
-            text=f"Sorry, an error occurred: {str(e)}",
+            text=f"Произошла ошибка: {str(e)}",
             reply_to_message_id=message_id
         )
+        return {"status": "error", "message": str(e)}
 
-class handler(BaseHTTPRequestHandler):
-    async def handle_telegram_update(self, update_data):
-        try:
-            bot = Bot(token=os.getenv('TELEGRAM_BOT_TOKEN'))
-            
-            # Check if we have a message
-            if 'message' in update_data and 'text' in update_data['message']:
-                chat_id = update_data['message']['chat']['id']
-                message_text = update_data['message']['text']
-                message_id = update_data['message']['message_id']
-                
-                await process_message(bot, chat_id, message_text, message_id)
-                return {"status": "ok"}
-            
-            return {"status": "no message found"}
-            
-        except Exception as e:
-            print(f"Error in handle_telegram_update: {str(e)}", file=sys.stderr)
-            return {"status": "error", "message": str(e)}
+# === Vercel Handler ===
+def handler(event, context=None):
+    try:
+        # Парсим тело запроса
+        body = event.get('body')
+        if not body:
+            return {
+                'statusCode': 400,
+                'body': json.dumps({"status": "error", "message": "Empty body"})
+            }
 
-    def do_POST(self):
-        try:
-            # Read request body
-            content_length = int(self.headers['Content-Length'])
-            request_body = self.rfile.read(content_length).decode('utf-8')
-            update_data = json.loads(request_body)
-            
-            # Process update
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            result = loop.run_until_complete(self.handle_telegram_update(update_data))
-            
-            # Send response
-            self.send_response(200)
-            self.send_header('Content-type', 'application/json')
-            self.end_headers()
-            self.wfile.write(json.dumps(result).encode('utf-8'))
-            
-        except Exception as e:
-            print(f"Error in do_POST: {str(e)}", file=sys.stderr)
-            self.send_response(500)
-            self.send_header('Content-type', 'application/json')
-            self.end_headers()
-            self.wfile.write(json.dumps({"status": "error", "message": str(e)}).encode('utf-8'))
+        # Если тело в base64 (Vercel может так присылать)
+        import base64
+        if event.get('isBase64Encoded', False):
+            body = base64.b64decode(body).decode('utf-8')
 
-    def do_GET(self):
-        # Simple health check
-        self.send_response(200)
-        self.send_header('Content-type', 'application/json')
-        self.end_headers()
-        self.wfile.write(json.dumps({"status": "healthy"}).encode('utf-8'))
+        update = json.loads(body)
+
+        # Проверяем, есть ли сообщение
+        if 'message' not in update or 'text' not in update['message']:
+            return {
+                'statusCode': 200,
+                'body': json.dumps({"status": "no message"})
+            }
+
+        chat_id = update['message']['chat']['id']
+        text = update['message']['text']
+        message_id = update['message']['message_id']
+
+        # Запускаем асинхронную обработку
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        result = loop.run_until_complete(process_message(chat_id, text, message_id))
+        loop.close()
+
+        return {
+            'statusCode': 200,
+            'body': json.dumps(result)
+        }
+
+    except json.JSONDecodeError as e:
+        return {
+            'statusCode': 400,
+            'body': json.dumps({"status": "error", "message": f"Invalid JSON: {str(e)}"})
+        }
+    except Exception as e:
+        return {
+            'statusCode': 500,
+            'body': json.dumps({"status": "error", "message": str(e)})
+        }
+
+# Для Vercel
+def telegram_webhook(event, context):
+    return handler(event, context)
