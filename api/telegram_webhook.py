@@ -6,118 +6,119 @@ import base64
 from telegram import Bot
 from openai import OpenAI
 
-# === Конфигурация ===
-client = OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
-ASSISTANT_ID = os.getenv('OPENAI_ASSISTANT_ID')
-BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
+# -------------------------------------------------
+# Конфигурация (переменные окружения)
+# -------------------------------------------------
+BOT_TOKEN      = os.getenv("TELEGRAM_BOT_TOKEN")
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+ASSISTANT_ID   = os.getenv("OPENAI_ASSISTANT_ID")
 
 if not BOT_TOKEN:
-    raise ValueError("TELEGRAM_BOT_TOKEN не установлен!")
+    raise RuntimeError("TELEGRAM_BOT_TOKEN не задан")
+if not OPENAI_API_KEY:
+    raise RuntimeError("OPENAI_API_KEY не задан")
 if not ASSISTANT_ID:
-    raise ValueError("OPENAI_ASSISTANT_ID не установлен!")
+    raise RuntimeError("OPENAI_ASSISTANT_ID не задан")
 
-# === Асинхронная обработка ===
-async def process_message(chat_id, message_text, message_id):
+client = OpenAI(api_key=OPENAI_API_KEY)
+
+# -------------------------------------------------
+# Асинхронная обработка одного сообщения
+# -------------------------------------------------
+async def process_message(chat_id: int, text: str, message_id: int):
     bot = Bot(token=BOT_TOKEN)
     try:
-        await bot.send_chat_action(chat_id=chat_id, action='typing')
+        await bot.send_chat_action(chat_id=chat_id, action="typing")
 
-        # Создаём тред
+        # ---- OpenAI Assistant ----
         thread = await asyncio.to_thread(
             client.beta.threads.create,
-            messages=[{"role": "user", "content": message_text}]
+            messages=[{"role": "user", "content": text}]
         )
-
-        # Запускаем ассистента
         run = await asyncio.to_thread(
             client.beta.threads.runs.create,
             thread_id=thread.id,
-            assistant_id=ASSISTANT_ID
+            assistant_id=ASSISTANT_ID,
         )
 
-        # Ожидание завершения
+        # Простой polling (Vercel позволяет до ~10 сек)
         import time
-        while True:
-            run_status = await asyncio.to_thread(
+        for _ in range(30):                     # max ~9 сек
+            status = await asyncio.to_thread(
                 client.beta.threads.runs.retrieve,
                 thread_id=thread.id,
-                run_id=run.id
+                run_id=run.id,
             )
-            if run_status.status in ['completed', 'failed', 'cancelled']:
+            if status.status in {"completed", "failed", "cancelled"}:
                 break
-            time.sleep(1)
+            time.sleep(0.3)
 
-        if run_status.status != 'completed':
-            response = "Извини, произошла ошибка при обработке."
+        if status.status != "completed":
+            response = "Извини, не успел получить ответ."
         else:
-            messages = await asyncio.to_thread(
+            msgs = await asyncio.to_thread(
                 client.beta.threads.messages.list,
-                thread_id=thread.id
+                thread_id=thread.id,
             )
-            response = messages.data[0].content[0].text.value if messages.data else "Нет ответа."
+            response = msgs.data[0].content[0].text.value
 
         await bot.send_message(
             chat_id=chat_id,
             text=response,
-            reply_to_message_id=message_id
+            reply_to_message_id=message_id,
         )
         return {"status": "ok"}
 
-    except Exception as e:
-        error_msg = f"Ошибка: {str(e)}"
-        print(error_msg)
+    except Exception as exc:
+        err = f"Ошибка: {exc}"
+        print(err)
         await bot.send_message(
             chat_id=chat_id,
-            text=f"Ошибка: {str(e)}",
-            reply_to_message_id=message_id
+            text=err,
+            reply_to_message_id=message_id,
         )
-        return {"status": "error", "message": str(e)}
+        return {"status": "error", "message": str(exc)}
 
-# === Vercel Handler ===
+# -------------------------------------------------
+# Vercel‑handler (единственная точка входа)
+# -------------------------------------------------
 def telegram_webhook(event, context=None):
     try:
-        body = event.get('body', '')
+        body = event.get("body") or ""
         if not body:
-            return {
-                'statusCode': 400,
-                'body': json.dumps({"status": "error", "message": "Empty body"})
-            }
+            return {"statusCode": 400, "body": json.dumps({"error": "empty body"})}
 
-        if event.get('isBase64Encoded', False):
-            body = base64.b64decode(body).decode('utf-8')
+        # Vercel иногда присылает base64
+        if event.get("isBase64Encoded", False):
+            body = base64.b64decode(body).decode("utf-8")
 
         update = json.loads(body)
 
-        if 'message' not in update or 'text' not in update['message']:
-            return {
-                'statusCode': 200,
-                'body': json.dumps({"status": "ignored", "reason": "no text message"})
-            }
+        # ------------------- только текстовые сообщения -------------------
+        msg = update.get("message", {})
+        if not msg.get("text"):
+            return {"statusCode": 200, "body": json.dumps({"status": "ignored"})}
 
-        chat_id = update['message']['chat']['id']
-        text = update['message']['text']
-        message_id = update['message']['message_id']
+        chat_id    = msg["chat"]["id"]
+        text       = msg["text"]
+        message_id = msg["message_id"]
 
+        # ------------------- запуск async -------------------
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
-        result = loop.run_until_complete(process_message(chat_id, text, message_id))
+        result = loop.run_until_complete(
+            process_message(chat_id, text, message_id)
+        )
         loop.close()
 
-        return {
-            'statusCode': 200,
-            'body': json.dumps(result)
-        }
+        return {"statusCode": 200, "body": json.dumps(result)}
 
     except json.JSONDecodeError as e:
-        return {
-            'statusCode': 400,
-            'body': json.dumps({"status": "error", "message": f"Invalid JSON: {str(e)}"})
-        }
+        return {"statusCode": 400, "body": json.dumps({"error": f"bad json: {e}"})}
     except Exception as e:
-        return {
-            'statusCode': 500,
-            'body': json.dumps({"status": "error", "message": str(e)})
-        }
+        return {"statusCode": 500, "body": json.dumps({"error": str(e)})}
 
-# КЛЮЧЕВАЯ СТРОКА — Vercel ищет именно `handler`
+# -------------------------------------------------
+# ОБЯЗАТЕЛЬНО: Vercel ищет переменную `handler`
+# -------------------------------------------------
 handler = telegram_webhook
