@@ -1,18 +1,22 @@
-# api/telegram_webhook.py
 import json
 import os
 import asyncio
-import base64
 from telegram import Bot
 from openai import OpenAI
+from flask import Flask, request, jsonify
+
+# Создаем экземпляр Flask-приложения
+# Vercel будет автоматически использовать его как точку входа
+app = Flask(__name__)
 
 # -------------------------------------------------
 # Конфигурация (переменные окружения)
 # -------------------------------------------------
-BOT_TOKEN      = os.getenv("TELEGRAM_BOT_TOKEN")
+BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-ASSISTANT_ID   = os.getenv("OPENAI_ASSISTANT_ID")
+ASSISTANT_ID = os.getenv("OPENAI_ASSISTANT_ID")
 
+# Проверки вынесены на уровень модуля для быстрой диагностики при запуске
 if not BOT_TOKEN:
     raise RuntimeError("TELEGRAM_BOT_TOKEN не задан")
 if not OPENAI_API_KEY:
@@ -23,7 +27,7 @@ if not ASSISTANT_ID:
 client = OpenAI(api_key=OPENAI_API_KEY)
 
 # -------------------------------------------------
-# Асинхронная обработка одного сообщения
+# Асинхронная обработка одного сообщения (код без изменений)
 # -------------------------------------------------
 async def process_message(chat_id: int, text: str, message_id: int):
     bot = Bot(token=BOT_TOKEN)
@@ -43,7 +47,7 @@ async def process_message(chat_id: int, text: str, message_id: int):
 
         # Простой polling (Vercel позволяет до ~10 сек)
         import time
-        for _ in range(30):                     # max ~9 сек
+        for _ in range(30):  # max ~9 сек
             status = await asyncio.to_thread(
                 client.beta.threads.runs.retrieve,
                 thread_id=thread.id,
@@ -72,53 +76,47 @@ async def process_message(chat_id: int, text: str, message_id: int):
     except Exception as exc:
         err = f"Ошибка: {exc}"
         print(err)
-        await bot.send_message(
-            chat_id=chat_id,
-            text=err,
-            reply_to_message_id=message_id,
-        )
+        try:
+            await bot.send_message(
+                chat_id=chat_id,
+                text=err,
+                reply_to_message_id=message_id,
+            )
+        except Exception as send_exc:
+            print(f"Не удалось отправить сообщение об ошибке: {send_exc}")
         return {"status": "error", "message": str(exc)}
 
 # -------------------------------------------------
-# Vercel‑handler (единственная точка входа)
+# Flask-route (новая точка входа)
 # -------------------------------------------------
-def telegram_webhook(event, context=None):
+@app.route('/api/telegram_webhook', methods=['POST'])
+def telegram_webhook():
     try:
-        body = event.get("body") or ""
-        if not body:
-            return {"statusCode": 400, "body": json.dumps({"error": "empty body"})}
-
-        # Vercel иногда присылает base64
-        if event.get("isBase64Encoded", False):
-            body = base64.b64decode(body).decode("utf-8")
-
-        update = json.loads(body)
+        # Получаем JSON из тела запроса с помощью Flask
+        update = request.get_json(force=True)
 
         # ------------------- только текстовые сообщения -------------------
         msg = update.get("message", {})
-        if not msg.get("text"):
-            return {"statusCode": 200, "body": json.dumps({"status": "ignored"})}
+        if not msg or not msg.get("text"):
+            return jsonify({"status": "ignored"})
 
-        chat_id    = msg["chat"]["id"]
-        text       = msg["text"]
+        chat_id = msg["chat"]["id"]
+        text = msg["text"]
         message_id = msg["message_id"]
 
         # ------------------- запуск async -------------------
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        result = loop.run_until_complete(
-            process_message(chat_id, text, message_id)
-        )
-        loop.close()
+        # Запускаем асинхронную функцию и дожидаемся результата
+        result = asyncio.run(process_message(chat_id, text, message_id))
 
-        return {"statusCode": 200, "body": json.dumps(result)}
+        # Возвращаем JSON-ответ
+        return jsonify(result)
 
     except json.JSONDecodeError as e:
-        return {"statusCode": 400, "body": json.dumps({"error": f"bad json: {e}"})}
+        print(f"JSON Decode Error: {e}")
+        return jsonify({"error": f"bad json: {e}"}), 400
     except Exception as e:
-        return {"statusCode": 500, "body": json.dumps({"error": str(e)})}
+        print(f"Unhandled Exception: {e}")
+        return jsonify({"error": str(e)}), 500
 
-# -------------------------------------------------
-# ОБЯЗАТЕЛЬНО: Vercel ищет переменную `handler`
-# -------------------------------------------------
-handler = telegram_webhook
+# Переменная `handler` больше не нужна,
+# Vercel автоматически обнаружит и использует объект `app`
