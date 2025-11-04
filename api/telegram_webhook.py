@@ -46,7 +46,7 @@ async def process_message(chat_id: int, text: str, message_id: int):
             time.sleep(0.3)
 
         if status.status != "completed":
-            response = "Извини, не успел получить ответ."
+            response = "АХ! У меня что-то разомкнулось 🤖! \nПовторите, пожалуйста, еще раз! \n https://a.d-cd.net/JQAAAgAH4-A-480.jpg."
         else:
             msgs = await asyncio.to_thread(
                 client.beta.threads.messages.list,
@@ -59,8 +59,6 @@ async def process_message(chat_id: int, text: str, message_id: int):
         photos_match = re.match(r'\[photos: ([^\]]+)\]', response)
 
         clean_response = response  # Текст без маркера
-        media = None
-        caption = None
 
         if photo_match:
             url = photo_match.group(1).strip()
@@ -71,27 +69,34 @@ async def process_message(chat_id: int, text: str, message_id: int):
                 caption=clean_response[:1024],  # Лимит caption
                 reply_to_message_id=message_id
             )
+            if len(clean_response) > 1024:
+                await bot.send_message(
+                    chat_id=chat_id,
+                    text=clean_response[1024:],
+                    reply_to_message_id=message_id
+                )
             return {"status": "ok"}
 
         elif photos_match:
             urls = [u.strip() for u in photos_match.group(1).split('|') if u.strip()]
             clean_response = response[photos_match.end():].strip()
             if urls:
-                media = [InputMediaPhoto(media=url) for url in urls[:10]]  # Макс 10 в альбоме
-                if media:
-                    media[0].caption = clean_response[:1024]  # Подпись только к первому
-                    await bot.send_media_group(
+                media = []
+                for i, url in enumerate(urls[:10]):  # Макс 10 в альбоме
+                    caption = clean_response[:1024] if i == 0 else None
+                    media.append(InputMediaPhoto(media=url, caption=caption))
+                await bot.send_media_group(
+                    chat_id=chat_id,
+                    media=media,
+                    reply_to_message_id=message_id
+                )
+                if len(clean_response) > 1024:
+                    await bot.send_message(
                         chat_id=chat_id,
-                        media=media,
+                        text=clean_response[1024:],
                         reply_to_message_id=message_id
                     )
-                    if len(clean_response) > 1024:
-                        await bot.send_message(
-                            chat_id=chat_id,
-                            text=clean_response[1024:],
-                            reply_to_message_id=message_id
-                        )
-                    return {"status": "ok"}
+                return {"status": "ok"}
 
         # Если нет фото, отправляем просто текст
         await bot.send_message(
