@@ -1,40 +1,29 @@
 import json
 import os
 import asyncio
-from telegram import Bot
+import re
+from telegram import Bot, InputMediaPhoto
 from openai import OpenAI
 from flask import Flask, request, jsonify
 
-# Создаем экземпляр Flask-приложения
-# Vercel будет автоматически использовать его как точку входа
 app = Flask(__name__)
 
-# -------------------------------------------------
-# Конфигурация (переменные окружения)
-# -------------------------------------------------
+# Конфигурация
 BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 ASSISTANT_ID = os.getenv("OPENAI_ASSISTANT_ID")
 
-# Проверки вынесены на уровень модуля для быстрой диагностики при запуске
-if not BOT_TOKEN:
-    raise RuntimeError("TELEGRAM_BOT_TOKEN не задан")
-if not OPENAI_API_KEY:
-    raise RuntimeError("OPENAI_API_KEY не задан")
-if not ASSISTANT_ID:
-    raise RuntimeError("OPENAI_ASSISTANT_ID не задан")
+if not BOT_TOKEN or not OPENAI_API_KEY or not ASSISTANT_ID:
+    raise RuntimeError("Missing environment variables")
 
 client = OpenAI(api_key=OPENAI_API_KEY)
 
-# -------------------------------------------------
-# Асинхронная обработка одного сообщения (код без изменений)
-# -------------------------------------------------
 async def process_message(chat_id: int, text: str, message_id: int):
     bot = Bot(token=BOT_TOKEN)
     try:
         await bot.send_chat_action(chat_id=chat_id, action="typing")
 
-        # ---- OpenAI Assistant ----
+        # OpenAI Assistant (без изменений)
         thread = await asyncio.to_thread(
             client.beta.threads.create,
             messages=[{"role": "user", "content": text}]
@@ -45,9 +34,8 @@ async def process_message(chat_id: int, text: str, message_id: int):
             assistant_id=ASSISTANT_ID,
         )
 
-        # Простой polling (Vercel позволяет до ~10 сек)
         import time
-        for _ in range(30):  # max ~9 сек
+        for _ in range(30):
             status = await asyncio.to_thread(
                 client.beta.threads.runs.retrieve,
                 thread_id=thread.id,
@@ -66,9 +54,49 @@ async def process_message(chat_id: int, text: str, message_id: int):
             )
             response = msgs.data[0].content[0].text.value
 
+        # Парсинг ответа на фото/альбом
+        photo_match = re.match(r'\[photo: (https?://[^\]]+)\]', response)
+        photos_match = re.match(r'\[photos: ([^\]]+)\]', response)
+
+        clean_response = response  # Текст без маркера
+        media = None
+        caption = None
+
+        if photo_match:
+            url = photo_match.group(1).strip()
+            clean_response = response[photo_match.end():].strip()
+            await bot.send_photo(
+                chat_id=chat_id,
+                photo=url,
+                caption=clean_response[:1024],  # Лимит caption
+                reply_to_message_id=message_id
+            )
+            return {"status": "ok"}
+
+        elif photos_match:
+            urls = [u.strip() for u in photos_match.group(1).split('|') if u.strip()]
+            clean_response = response[photos_match.end():].strip()
+            if urls:
+                media = [InputMediaPhoto(media=url) for url in urls[:10]]  # Макс 10 в альбоме
+                if media:
+                    media[0].caption = clean_response[:1024]  # Подпись только к первому
+                    await bot.send_media_group(
+                        chat_id=chat_id,
+                        media=media,
+                        reply_to_message_id=message_id
+                    )
+                    if len(clean_response) > 1024:
+                        await bot.send_message(
+                            chat_id=chat_id,
+                            text=clean_response[1024:],
+                            reply_to_message_id=message_id
+                        )
+                    return {"status": "ok"}
+
+        # Если нет фото, отправляем просто текст
         await bot.send_message(
             chat_id=chat_id,
-            text=response,
+            text=clean_response,
             reply_to_message_id=message_id,
         )
         return {"status": "ok"}
@@ -76,26 +104,13 @@ async def process_message(chat_id: int, text: str, message_id: int):
     except Exception as exc:
         err = f"Ошибка: {exc}"
         print(err)
-        try:
-            await bot.send_message(
-                chat_id=chat_id,
-                text=err,
-                reply_to_message_id=message_id,
-            )
-        except Exception as send_exc:
-            print(f"Не удалось отправить сообщение об ошибке: {send_exc}")
+        await bot.send_message(chat_id=chat_id, text=err, reply_to_message_id=message_id)
         return {"status": "error", "message": str(exc)}
 
-# -------------------------------------------------
-# Flask-route (новая точка входа)
-# -------------------------------------------------
 @app.route('/api/telegram_webhook', methods=['POST'])
 def telegram_webhook():
     try:
-        # Получаем JSON из тела запроса с помощью Flask
         update = request.get_json(force=True)
-
-        # ------------------- только текстовые сообщения -------------------
         msg = update.get("message", {})
         if not msg or not msg.get("text"):
             return jsonify({"status": "ignored"})
@@ -104,19 +119,8 @@ def telegram_webhook():
         text = msg["text"]
         message_id = msg["message_id"]
 
-        # ------------------- запуск async -------------------
-        # Запускаем асинхронную функцию и дожидаемся результата
-        result = asyncio.run(process_message(chat_id, text, message_id))
+        return jsonify(asyncio.run(process_message(chat_id, text, message_id)))
 
-        # Возвращаем JSON-ответ
-        return jsonify(result)
-
-    except json.JSONDecodeError as e:
-        print(f"JSON Decode Error: {e}")
-        return jsonify({"error": f"bad json: {e}"}), 400
     except Exception as e:
         print(f"Unhandled Exception: {e}")
         return jsonify({"error": str(e)}), 500
-
-# Переменная `handler` больше не нужна,
-# Vercel автоматически обнаружит и использует объект `app`
