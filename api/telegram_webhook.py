@@ -78,8 +78,8 @@ async def process_message(chat_id: int, text: str, message_id: int):
                 break
 
             # Ждём перед следующей проверкой
-            # await asyncio.to_thread(time.sleep, interval)
-            await asyncio.sleep(interval)
+            await asyncio.to_thread(time.sleep, interval)
+            # await asyncio.sleep(interval)
             elapsed += interval
 
             # typing — не чаще чем раз в 4 сек
