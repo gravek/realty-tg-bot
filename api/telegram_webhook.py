@@ -57,7 +57,7 @@ async def process_message(chat_id: int, text: str, message_id: int):
             client.beta.threads.runs.create,
             thread_id=thread_id,
             assistant_id=ASSISTANT_ID,
-            max_completion_tokens=300,
+            # max_completion_tokens=300,
             # max_prompt_tokens=3000,
         )
 
