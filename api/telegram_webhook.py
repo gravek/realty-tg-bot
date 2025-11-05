@@ -85,7 +85,7 @@ async def process_message(chat_id: int, text: str, message_id: int):
         else:
             msgs = await asyncio.to_thread(
                 client.beta.threads.messages.list,
-                thread_id=thread.id,
+                thread_id=thread_id,
             )
             response = msgs.data[0].content[0].text.value
 
