@@ -57,12 +57,12 @@ async def process_message(chat_id: int, text: str, message_id: int):
             client.beta.threads.runs.create,
             thread_id=thread_id,
             assistant_id=ASSISTANT_ID,
-            max_completion_tokens=200,
+            max_completion_tokens=500,
             # max_prompt_tokens=3000,
         )
 
         # === Ожидание с typing ===
-        timeout = 30
+        timeout = 60
         interval = 2.0  # ← каждые 2 сек — оптимально
         elapsed = 0
 
@@ -74,11 +74,12 @@ async def process_message(chat_id: int, text: str, message_id: int):
             )
 
             if status.status in {"completed", "failed", "cancelled", "expired"}:
-                print(f"[DEBUG] Break! Run status: {status.status}, elapsed: {elapsed}s", flush=True)
+                print(f"[DEBUG] Run status: {status.status}, elapsed: {elapsed}s (break)", flush=True)
                 break
 
             # Ждём перед следующей проверкой
-            await asyncio.to_thread(time.sleep, interval)
+            # await asyncio.to_thread(time.sleep, interval)
+            await asyncio.sleep(interval)
             elapsed += interval
 
             # typing — не чаще чем раз в 4 сек
@@ -86,7 +87,7 @@ async def process_message(chat_id: int, text: str, message_id: int):
                 await bot.send_chat_action(chat_id=chat_id, action="typing")
         else:
             print(f"[DEBUG] Timeout! Run status: {status.status}, elapsed: {elapsed}s, ", flush=True)
-            response = "Ой, я слишком долго думаю 🤔\nНапишите @a4k5o6 — он ответит мгновенно!"
+            response = "Ой, я слишком долго думаю 🤔\nПопробуйте, пожалуйста еще раз или сразу напишите менеджеру @a4k5o6 — он ответит мгновенно!"
             await bot.send_message(chat_id=chat_id, text=response, reply_to_message_id=message_id)
             return {"status": "timeout"}
 
