@@ -100,6 +100,11 @@ async def process_message(chat_id: int, text: str, message_id: int):
             )
             response = msgs.data[0].content[0].text.value
 
+            # Логируем длину ответа для настройки лимитов
+            response_tokens = len(response.split()) * 1.3  # Примерная оценка
+            print(f"[DEBUG] Response length: {len(response)} chars, ~{int(response_tokens)} tokens")
+
+        
         # Парсинг ответа на фото/альбом
         photo_match = re.match(r'\[photo: (https?://[^\]]+)\]', response)
         photos_match = re.match(r'\[photos: ([^\]]+)\]', response)
