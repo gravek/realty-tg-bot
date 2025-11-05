@@ -12,6 +12,7 @@ app = Flask(__name__)
 BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 ASSISTANT_ID = os.getenv("OPENAI_ASSISTANT_ID")
+THREAD_CACHE = {}  # {chat_id: thread_id}
 
 if not BOT_TOKEN or not OPENAI_API_KEY or not ASSISTANT_ID:
     raise RuntimeError("Missing environment variables")
@@ -21,30 +22,64 @@ client = OpenAI(api_key=OPENAI_API_KEY)
 async def process_message(chat_id: int, text: str, message_id: int):
     bot = Bot(token=BOT_TOKEN)
     try:
-        await bot.send_chat_action(chat_id=chat_id, action="typing")
+        # === /start: сброс истории ===
+        if text.strip().lower() == "/start":
+            if chat_id in THREAD_CACHE:
+                del THREAD_CACHE[chat_id]
+            response = (
+                "Привет! Я — ваш помощник по недвижимости в Аджарии 🌊\n\n"
+                "Подберу апартаменты с видом на море, доходностью 8–12% и премиум-инфраструктурой.\n"
+                "Напишите: покупка, аренда, инвестиции?\n\n"
+                "Или сразу к менеджеру: @a4k5o6"
+            )
+            await bot.send_message(chat_id=chat_id, text=response, reply_to_message_id=message_id)
+            return {"status": "ok"}
 
-        # OpenAI Assistant (без изменений)
-        thread = await asyncio.to_thread(
-            client.beta.threads.create,
-            messages=[{"role": "user", "content": text}]
+        # === История: кэш thread_id ===
+        thread_id = THREAD_CACHE.get(chat_id)
+        if not thread_id:
+            thread = await asyncio.to_thread(client.beta.threads.create)
+            thread_id = thread.id
+            THREAD_CACHE[chat_id] = thread_id
+
+        # === Добавляем сообщение ===
+        await asyncio.to_thread(
+            client.beta.threads.messages.create,
+            thread_id=thread_id,
+            role="user",
+            content=text
         )
+
+        # === Запуск с лимитами токенов ===
+        await bot.send_chat_action(chat_id=chat_id, action="typing")
         run = await asyncio.to_thread(
             client.beta.threads.runs.create,
-            thread_id=thread.id,
+            thread_id=thread_id,
             assistant_id=ASSISTANT_ID,
+            max_completion_tokens=800,
+            max_prompt_tokens=3000,
         )
 
+        # === Ожидание с typing ===
         import time
-        for _ in range(30):
+        typing_interval = 3.0
+        last_typing = 0
+        for _ in range(40):
+            now = time.time()
+            if now - last_typing >= typing_interval:
+                await bot.send_chat_action(chat_id=chat_id, action="typing")
+                last_typing = now
+
             status = await asyncio.to_thread(
                 client.beta.threads.runs.retrieve,
-                thread_id=thread.id,
+                thread_id=thread_id,
                 run_id=run.id,
             )
             if status.status in {"completed", "failed", "cancelled"}:
                 break
-            time.sleep(0.3)
+            await asyncio.to_thread(time.sleep, 0.3)
 
+        
         if status.status != "completed":
             response = "АХ! У меня что-то разомкнулось 🤖! \nПовторите, пожалуйста, еще раз! \n https://a.d-cd.net/JQAAAgAH4-A-480.jpg."
         else:
