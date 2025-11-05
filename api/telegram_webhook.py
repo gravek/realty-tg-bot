@@ -63,31 +63,36 @@ async def process_message(chat_id: int, text: str, message_id: int):
 
         # === Ожидание с typing ===
         timeout = 30
-        interval = 1.0
+        interval = 2.0  # ← каждые 2 сек — оптимально
         elapsed = 0
 
         while elapsed < timeout:
-            await bot.send_chat_action(chat_id=chat_id, action="typing")
-
             status = await asyncio.to_thread(
                 client.beta.threads.runs.retrieve,
                 thread_id=thread_id,
                 run_id=run.id,
             )
 
-            if status.status in {"completed", "failed", "cancelled"}:
+            if status.status in {"completed", "failed", "cancelled", "expired"}:
+                print(f"[DEBUG] Run status: {status.status}, elapsed: {elapsed}s", flush=True)
                 break
 
+            # Ждём перед следующей проверкой
             await asyncio.to_thread(time.sleep, interval)
             elapsed += interval
+
+            # typing — не чаще чем раз в 4 сек
+            if int(elapsed) % 5 == 0:
+                await bot.send_chat_action(chat_id=chat_id, action="typing")
         else:
-            # Таймаут
-            response = "Ох, я слишком долго думаю 🤔\nПопробуйте ещё раз или напишите сразу Андрею @a4k5o6"
+            print(f"[DEBUG] Run status: {status.status}, elapsed: {elapsed}s", flush=True)
+            response = "Ой, я слишком долго думаю 🤔\nНапишите @a4k5o6 — он ответит мгновенно!"
             await bot.send_message(chat_id=chat_id, text=response, reply_to_message_id=message_id)
             return {"status": "timeout"}
 
         
         if status.status != "completed":
+            print(f"[DEBUG] Run status: {status.status}, elapsed: {elapsed}s", flush=True)
             response = "АХ! У меня что-то разомкнулось 🤖! \nПовторите, пожалуйста, еще раз! \n https://a.d-cd.net/JQAAAgAH4-A-480.jpg."
         else:
             msgs = await asyncio.to_thread(
