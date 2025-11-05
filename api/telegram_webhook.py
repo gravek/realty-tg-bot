@@ -5,6 +5,7 @@ import re
 from telegram import Bot, InputMediaPhoto
 from openai import OpenAI
 from flask import Flask, request, jsonify
+import time
 
 app = Flask(__name__)
 
@@ -61,23 +62,29 @@ async def process_message(chat_id: int, text: str, message_id: int):
         )
 
         # === Ожидание с typing ===
-        import time
-        typing_interval = 3.0
-        last_typing = 0
-        for _ in range(40):
-            now = time.time()
-            if now - last_typing >= typing_interval:
-                await bot.send_chat_action(chat_id=chat_id, action="typing")
-                last_typing = now
+        timeout = 30
+        interval = 1.0
+        elapsed = 0
+
+        while elapsed < timeout:
+            await bot.send_chat_action(chat_id=chat_id, action="typing")
 
             status = await asyncio.to_thread(
                 client.beta.threads.runs.retrieve,
                 thread_id=thread_id,
                 run_id=run.id,
             )
+
             if status.status in {"completed", "failed", "cancelled"}:
                 break
-            await asyncio.to_thread(time.sleep, 0.3)
+
+            await asyncio.to_thread(time.sleep, interval)
+            elapsed += interval
+        else:
+            # Таймаут
+            response = "Ох, я слишком долго думаю 🤔\nПопробуйте ещё раз или напишите сразу Андрею @a4k5o6"
+            await bot.send_message(chat_id=chat_id, text=response, reply_to_message_id=message_id)
+            return {"status": "timeout"}
 
         
         if status.status != "completed":
