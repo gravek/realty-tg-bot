@@ -119,7 +119,6 @@ async def process_message(chat_id: int, text: str, message_id: int):
                 chat_id=chat_id,
                 photo=url,
                 caption=clean_response[:1024],  # Лимит caption
-                print(f"[DEBUG] caption photo_match: {caption}", flush=True)
                 reply_to_message_id=message_id,
                 disable_web_page_preview=True
             )
