@@ -115,6 +115,7 @@ async def process_message(chat_id: int, text: str, message_id: int):
         if photo_match:
             url = photo_match.group(1).strip()
             clean_response = response[photo_match.end():].strip()
+            print(f"[DEBUG] photo_match clean_response: {clean_response}", flush=True)
             await bot.send_photo(
                 chat_id=chat_id,
                 photo=url,
@@ -133,6 +134,7 @@ async def process_message(chat_id: int, text: str, message_id: int):
         elif photos_match:
             urls = [u.strip() for u in photos_match.group(1).split('|') if u.strip()]
             clean_response = response[photos_match.end():].strip()
+            print(f"[DEBUG] photos_match clean_response: {clean_response}", flush=True)
             if urls:
                 # Для send_media_group (album)
                 media = []
