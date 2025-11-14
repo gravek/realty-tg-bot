@@ -111,6 +111,7 @@ async def process_message(chat_id: int, text: str, message_id: int):
         photos_match = re.match(r'\[photos: ([^\]]+)\]', response)
 
         clean_response = response  # Текст без маркера
+        print(f"[DEBUG] clean_response: {clean_response}", flush=True)
 
         if photo_match:
             url = photo_match.group(1).strip()
@@ -134,8 +135,8 @@ async def process_message(chat_id: int, text: str, message_id: int):
         elif photos_match:
             urls = [u.strip() for u in photos_match.group(1).split('|') if u.strip()]
             clean_response = response[photos_match.end():].strip()
-            print(f"[DEBUG] photos_match photos_match.group(1): {photos_match.group(1)}", flush=True)
             # print(f"[DEBUG] photos_match clean_response: {clean_response}", flush=True)
+            print(f"[DEBUG] photos_match photos_match.group(1): {photos_match.group(1)}", flush=True)
             if urls:
                 # Для send_media_group (album)
                 media = []
@@ -143,9 +144,9 @@ async def process_message(chat_id: int, text: str, message_id: int):
                     caption = clean_response[:1024] if i == 0 else None
                     print(f"[DEBUG] caption photos_match: {caption}", flush=True)
 
-                    if caption and 'http' in caption:  # Wrap URLs in HTML to disable preview
-                        caption = re.sub(r'(https?://[^\s]+)', r'<a href="\1">Фото</a>', caption)
-                        print(f"[DEBUG] caption photos_match http: {caption}", flush=True)
+                    # if caption and 'http' in caption:  # Wrap URLs in HTML to disable preview
+                    #     caption = re.sub(r'(https?://[^\s]+)', r'<a href="\1">Фото</a>', caption)
+                    #     print(f"[DEBUG] caption photos_match http: {caption}", flush=True)
 
                     media.append(InputMediaPhoto(media=url, caption=caption, parse_mode='HTML'))  # ← parse_mode=HTML
                 await bot.send_media_group(
