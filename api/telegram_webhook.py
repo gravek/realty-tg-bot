@@ -134,7 +134,8 @@ async def process_message(chat_id: int, text: str, message_id: int):
         elif photos_match:
             urls = [u.strip() for u in photos_match.group(1).split('|') if u.strip()]
             clean_response = response[photos_match.end():].strip()
-            print(f"[DEBUG] photos_match clean_response: {clean_response}", flush=True)
+            print(f"[DEBUG] photos_match "photos_match.group(1)": {photos_match.group(1)}", flush=True)
+            # print(f"[DEBUG] photos_match clean_response: {clean_response}", flush=True)
             if urls:
                 # Для send_media_group (album)
                 media = []
