@@ -119,6 +119,7 @@ async def process_message(chat_id: int, text: str, message_id: int):
                 chat_id=chat_id,
                 photo=url,
                 caption=clean_response[:1024],  # Лимит caption
+                print(f"[DEBUG] caption photo_match: {caption}", flush=True)
                 reply_to_message_id=message_id,
                 disable_web_page_preview=True
             )
@@ -138,8 +139,12 @@ async def process_message(chat_id: int, text: str, message_id: int):
                 media = []
                 for i, url in enumerate(urls[:10]):
                     caption = clean_response[:1024] if i == 0 else None
+                    print(f"[DEBUG] caption photos_match: {caption}", flush=True)
+
                     if caption and 'http' in caption:  # Wrap URLs in HTML to disable preview
                         caption = re.sub(r'(https?://[^\s]+)', r'<a href="\1">Фото</a>', caption)
+                        print(f"[DEBUG] caption photos_match http: {caption}", flush=True)
+
                     media.append(InputMediaPhoto(media=url, caption=caption, parse_mode='HTML'))  # ← parse_mode=HTML
                 await bot.send_media_group(
                     chat_id=chat_id,
