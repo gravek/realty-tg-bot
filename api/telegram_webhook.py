@@ -119,7 +119,8 @@ async def process_message(chat_id: int, text: str, message_id: int):
                 chat_id=chat_id,
                 photo=url,
                 caption=clean_response[:1024],  # Лимит caption
-                reply_to_message_id=message_id
+                reply_to_message_id=message_id,
+                disable_web_page_preview=True
             )
             if len(clean_response) > 1024:
                 await bot.send_message(
@@ -133,20 +134,30 @@ async def process_message(chat_id: int, text: str, message_id: int):
             urls = [u.strip() for u in photos_match.group(1).split('|') if u.strip()]
             clean_response = response[photos_match.end():].strip()
             if urls:
+                # Для send_media_group (album)
                 media = []
-                for i, url in enumerate(urls[:10]):  # Макс 10 в альбоме
+                for i, url in enumerate(urls[:10]):
                     caption = clean_response[:1024] if i == 0 else None
-                    media.append(InputMediaPhoto(media=url, caption=caption))
+                    if caption and 'http' in caption:  # Wrap URLs in HTML to disable preview
+                        caption = re.sub(r'(https?://[^\s]+)', r'<a href="\1">Фото</a>', caption)
+                    media.append(InputMediaPhoto(media=url, caption=caption, parse_mode='HTML'))  # ← parse_mode=HTML
                 await bot.send_media_group(
                     chat_id=chat_id,
                     media=media,
                     reply_to_message_id=message_id
                 )
+
+                # Для дополнительного текста
                 if len(clean_response) > 1024:
+                    extra_text = clean_response[1024:]
+                    if 'http' in extra_text:  # Wrap URLs
+                        extra_text = re.sub(r'(https?://[^\s]+)', r'<a href="\1">Ссылка</a>', extra_text)
                     await bot.send_message(
                         chat_id=chat_id,
-                        text=clean_response[1024:],
-                        reply_to_message_id=message_id
+                        text=extra_text,
+                        reply_to_message_id=message_id,
+                        parse_mode='HTML',  # ← Для поддержки <a>
+                        disable_web_page_preview=True  # ← Добавьте
                     )
                 return {"status": "ok"}
 
