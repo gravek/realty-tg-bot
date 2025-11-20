@@ -1,3 +1,5 @@
 python-telegram-bot
 openai
-Flask
+flask
+pydantic
+agents

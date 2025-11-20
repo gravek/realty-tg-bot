@@ -2,14 +2,14 @@
   "version": 2,
   "builds": [
     {
-      "src": "api/telegram_webhook.py",
+      "src": "api/webhook.py",
       "use": "@vercel/python"
     }
   ],
   "routes": [
     {
-      "src": "/api/telegram_webhook",
-      "dest": "/api/telegram_webhook.py"
+      "src": "/(.*)",
+      "dest": "api/webhook.py"
     }
   ]
 }
