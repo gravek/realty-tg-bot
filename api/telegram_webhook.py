@@ -3,7 +3,7 @@ import os
 from flask import Flask, request, jsonify
 from telegram import Bot, InputMediaPhoto
 import asyncio
-from Elaj_agent_1 import run_workflow, WorkflowInput
+from elaj_agent_1 import run_workflow, WorkflowInput
 
 app = Flask(__name__)
 bot = Bot(token=os.environ["TELEGRAM_BOT_TOKEN"])
