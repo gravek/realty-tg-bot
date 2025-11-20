@@ -183,7 +183,8 @@ def webhook():
     text = msg["text"]
     message_id = msg["message_id"]
 
-    asyncio.create_task(handle_message(chat_id, text, message_id))
+    # Используем asyncio.run() вместо create_task()
+    asyncio.run(handle_message(chat_id, text, message_id))
     return jsonify(ok=True)
 
 if __name__ == "__main__":
