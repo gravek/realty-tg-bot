@@ -101,6 +101,30 @@ async def process_message(chat_id: int, text: str, message_id: int):
             )
             response = msgs.data[0].content[0].text.value
 
+
+            # ←←← ВОТ ЭТОТ БЛОК ДОБАВЛЯЕШЬ ←←←
+            annotations = msgs.data[0].content[0].text.annotations
+            file_citations = [ann for ann in annotations if ann.type == "file_citation"]
+            
+            print("\n=== RAG RETRIEVAL DEBUG ===")
+            if file_citations:
+                for cit in file_citations:
+                    file_id = cit.file_citation.file_id
+                    quote = cit.text  # это [1] в тексте
+                    # Получаем настоящий кусок текста из файла
+                    file_content = await asyncio.to_thread(
+                        client.files.content, file_id
+                    )
+                    real_text = file_content.text[:500]  # первые 500 символов для лога
+                    print(f"Цитирование: {quote}")
+                    print(f"File ID: {file_id}")
+                    print(f"Отрывок: {real_text}\n")
+            else:
+                print("ВНИМАНИЕ: Retrieval НЕ сработал — ответ без ссылок на файлы (галлюцинация!)")
+            print("=== КОНЕЦ DEBUG ===\n")
+            # ←←← КОНЕЦ НОВОГО БЛОКА ←←←
+
+            
             # Логируем длину ответа для настройки лимитов
             response_tokens = len(response.split()) * 1.3  # Примерная оценка
             print(f"[DEBUG] Response length: {len(response)} chars, ~{int(response_tokens)} tokens")
