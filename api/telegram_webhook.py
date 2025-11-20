@@ -1,14 +1,11 @@
-# api/telegram_webhook.py
 import os
 from flask import Flask, request, jsonify
 from telegram import Bot, InputMediaPhoto
 import asyncio
 
-# Импорты для Agents SDK
+# ===== КОД ИЗ elaj_agent_1.py =====
 from agents import FileSearchTool, RunContextWrapper, Agent, ModelSettings, TResponseInputItem, Runner, RunConfig, trace
 from pydantic import BaseModel
-
-# ===== AGENT CODE (из elaj_agent_1.py) =====
 
 # Tool definitions
 file_search = FileSearchTool(
@@ -69,7 +66,9 @@ elaj_agent_1 = Agent(
   name="Elaj_agent_1",
   instructions=elaj_agent_1_instructions,
   model="gpt-4.1",
-  tools=[file_search],
+  tools=[
+    file_search
+  ],
   model_settings=ModelSettings(
     temperature=1,
     top_p=1,
@@ -113,8 +112,7 @@ async def run_workflow(workflow_input: WorkflowInput):
     }
     return elaj_agent_1_result
 
-# ===== TELEGRAM WEBHOOK CODE =====
-
+# ===== TELEGRAM WEBHOOK КОД =====
 app = Flask(__name__)
 bot = Bot(token=os.environ["TELEGRAM_BOT_TOKEN"])
 
@@ -134,13 +132,11 @@ async def handle_message(chat_id: int, text: str, message_id: int):
 
         await bot.send_chat_action(chat_id=chat_id, action="typing")
 
-        # ←←←←←←←←←←←←←←←←←←←←←←←←←←←←←←←←←
-        # Здесь запускается ваш настоящий агент из Agents SDK
+        # Запуск агента из Agents SDK
         result = await run_workflow(WorkflowInput(input_as_text=text))
         response = result["output_text"]
-        # →→→→→→→→→→→→→→→→→→→→→→→→→→→→→→→→→
 
-        # Поддержка фото и альбомов (как вы прописали в промпте)
+        # Поддержка фото и альбомов
         if response.startswith("[photos:"):
             urls = [u.strip() for u in response.split("]", 1)[0][8:].split("|") if u.strip()]
             text_part = response.split("]", 1)[1].strip() if "]" in response[8:] else ""
@@ -173,8 +169,11 @@ async def handle_message(chat_id: int, text: str, message_id: int):
             reply_to_message_id=message_id
         )
 
-@app.post("/")
-async def webhook():
+@app.route('/api/telegram_webhook', methods=['POST', 'GET'])
+def webhook():
+    if request.method == 'GET':
+        return jsonify({"status": "Elaj Telegram Bot is running"})
+    
     update = request.get_json()
     msg = update.get("message", {})
     if not msg or "text" not in msg:
