@@ -183,8 +183,17 @@ def webhook():
     text = msg["text"]
     message_id = msg["message_id"]
 
-    # Используем asyncio.run() вместо create_task()
-    asyncio.run(handle_message(chat_id, text, message_id))
+    # Создаем новый event loop для каждого запроса
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    try:
+        loop.run_until_complete(handle_message(chat_id, text, message_id))
+    except Exception as e:
+        print(f"Error in webhook: {e}")
+        return jsonify({"status": "error"}), 500
+    finally:
+        loop.close()
+        
     return jsonify(ok=True)
 
 if __name__ == "__main__":
