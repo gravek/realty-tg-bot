@@ -114,10 +114,13 @@ async def run_workflow(workflow_input: WorkflowInput):
 
 # ===== TELEGRAM WEBHOOK КОД =====
 app = Flask(__name__)
-bot = Bot(token=os.environ["TELEGRAM_BOT_TOKEN"])
+# bot = Bot(token=os.environ["TELEGRAM_BOT_TOKEN"])
 
 async def handle_message(chat_id: int, text: str, message_id: int):
     try:
+        # Создаем нового бота внутри функции
+        bot = Bot(token=os.environ["TELEGRAM_BOT_TOKEN"])
+        
         # Приветствие
         if text.strip().lower() == "/start":
             welcome = (
@@ -128,6 +131,7 @@ async def handle_message(chat_id: int, text: str, message_id: int):
                 "Или сразу к менеджеру → @a4k5o6"
             )
             await bot.send_message(chat_id=chat_id, text=welcome, reply_to_message_id=message_id)
+            await bot.close()
             return
 
         await bot.send_chat_action(chat_id=chat_id, action="typing")
@@ -146,6 +150,7 @@ async def handle_message(chat_id: int, text: str, message_id: int):
             await bot.send_photo(chat_id=chat_id, photo=url, caption=text_part[:1024], reply_to_message_id=message_id)
             if len(text_part) > 1024:
                 await bot.send_message(chat_id=chat_id, text=text_part[1024:], reply_to_message_id=message_id)
+            await bot.close()
             return
         else:
             urls = []
@@ -161,13 +166,20 @@ async def handle_message(chat_id: int, text: str, message_id: int):
         else:
             await bot.send_message(chat_id=chat_id, text=text_part, reply_to_message_id=message_id, disable_web_page_preview=True)
 
+        await bot.close()
+
     except Exception as e:
         print("Ошибка:", e)
-        await bot.send_message(
-            chat_id=chat_id,
-            text="Техническая заминка 🤖\nПишите сразу @a4k5o6 — он ответит мгновенно!",
-            reply_to_message_id=message_id
-        )
+        try:
+            bot = Bot(token=os.environ["TELEGRAM_BOT_TOKEN"])
+            await bot.send_message(
+                chat_id=chat_id,
+                text="Техническая заминка 🤖\nПишите сразу @a4k5o6 — он ответит мгновенно!",
+                reply_to_message_id=message_id
+            )
+            await bot.close()
+        except:
+            pass
 
 @app.route('/api/telegram_webhook', methods=['POST', 'GET'])
 def webhook():
@@ -183,17 +195,8 @@ def webhook():
     text = msg["text"]
     message_id = msg["message_id"]
 
-    # Создаем новый event loop для каждого запроса
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    try:
-        loop.run_until_complete(handle_message(chat_id, text, message_id))
-    except Exception as e:
-        print(f"Error in webhook: {e}")
-        return jsonify({"status": "error"}), 500
-    finally:
-        loop.close()
-        
+    # Используем asyncio.run() вместо create_task()
+    asyncio.run(handle_message(chat_id, text, message_id))
     return jsonify(ok=True)
 
 if __name__ == "__main__":
