@@ -1,6 +1,7 @@
 import os
 from flask import Flask, request, jsonify
 from telegram import Bot, InputMediaPhoto
+from telegram.request import HTTPXRequest
 import asyncio
 
 # ===== КОД ИЗ elaj_agent_1.py =====
@@ -116,9 +117,13 @@ async def run_workflow(workflow_input: WorkflowInput):
 app = Flask(__name__)
 
 def handle_message_sync(chat_id: int, text: str, message_id: int):
-    """Синхронная версия handle_message"""
+    """Полностью синхронная версия"""
     try:
-        bot = Bot(token=os.environ["TELEGRAM_BOT_TOKEN"])
+        # Создаем синхронного бота
+        bot = Bot(
+            token=os.environ["TELEGRAM_BOT_TOKEN"],
+            request=HTTPXRequest(http_version="1.1")  # Синхронный режим
+        )
         
         # Приветствие
         if text.strip().lower() == "/start":
@@ -129,7 +134,6 @@ def handle_message_sync(chat_id: int, text: str, message_id: int):
                 "Напишите, что вас интересует: покупка, аренда, инвестиции?\n"
                 "Или сразу к менеджеру → @a4k5o6"
             )
-            # Используем синхронные вызовы
             bot.send_message(chat_id=chat_id, text=welcome, reply_to_message_id=message_id)
             return
 
@@ -172,7 +176,10 @@ def handle_message_sync(chat_id: int, text: str, message_id: int):
     except Exception as e:
         print("Ошибка:", e)
         try:
-            bot = Bot(token=os.environ["TELEGRAM_BOT_TOKEN"])
+            bot = Bot(
+                token=os.environ["TELEGRAM_BOT_TOKEN"],
+                request=HTTPXRequest(http_version="1.1")
+            )
             bot.send_message(
                 chat_id=chat_id,
                 text="Техническая заминка 🤖\nПишите сразу @a4k5o6 — он ответит мгновенно!",
