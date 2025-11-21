@@ -1,7 +1,6 @@
 import os
 from flask import Flask, request, jsonify
 from telegram import Bot, InputMediaPhoto
-from telegram.request import HTTPXRequest
 import asyncio
 
 # ===== КОД ИЗ elaj_agent_1.py =====
@@ -116,14 +115,10 @@ async def run_workflow(workflow_input: WorkflowInput):
 # ===== TELEGRAM WEBHOOK КОД =====
 app = Flask(__name__)
 
-def handle_message_sync(chat_id: int, text: str, message_id: int):
-    """Полностью синхронная версия"""
+async def handle_message_async(chat_id: int, text: str, message_id: int):
+    """Полностью асинхронная версия"""
     try:
-        # Создаем синхронного бота
-        bot = Bot(
-            token=os.environ["TELEGRAM_BOT_TOKEN"],
-            request=HTTPXRequest(http_version="1.1")  # Синхронный режим
-        )
+        bot = Bot(token=os.environ["TELEGRAM_BOT_TOKEN"])
         
         # Приветствие
         if text.strip().lower() == "/start":
@@ -134,19 +129,15 @@ def handle_message_sync(chat_id: int, text: str, message_id: int):
                 "Напишите, что вас интересует: покупка, аренда, инвестиции?\n"
                 "Или сразу к менеджеру → @a4k5o6"
             )
-            bot.send_message(chat_id=chat_id, text=welcome, reply_to_message_id=message_id)
+            await bot.send_message(chat_id=chat_id, text=welcome, reply_to_message_id=message_id)
+            await bot.close()
             return
 
-        bot.send_chat_action(chat_id=chat_id, action="typing")
+        await bot.send_chat_action(chat_id=chat_id, action="typing")
 
-        # Запуск агента из Agents SDK (асинхронный, но запускаем в отдельном loop)
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        try:
-            result = loop.run_until_complete(run_workflow(WorkflowInput(input_as_text=text)))
-            response = result["output_text"]
-        finally:
-            loop.close()
+        # Запуск агента из Agents SDK
+        result = await run_workflow(WorkflowInput(input_as_text=text))
+        response = result["output_text"]
 
         # Поддержка фото и альбомов
         if response.startswith("[photos:"):
@@ -155,9 +146,10 @@ def handle_message_sync(chat_id: int, text: str, message_id: int):
         elif response.startswith("[photo:"):
             url = response.split("]", 1)[0][7:].strip()
             text_part = response.split("]", 1)[1].strip() if "]" in response[7:] else ""
-            bot.send_photo(chat_id=chat_id, photo=url, caption=text_part[:1024], reply_to_message_id=message_id)
+            await bot.send_photo(chat_id=chat_id, photo=url, caption=text_part[:1024], reply_to_message_id=message_id)
             if len(text_part) > 1024:
-                bot.send_message(chat_id=chat_id, text=text_part[1024:], reply_to_message_id=message_id)
+                await bot.send_message(chat_id=chat_id, text=text_part[1024:], reply_to_message_id=message_id)
+            await bot.close()
             return
         else:
             urls = []
@@ -167,24 +159,24 @@ def handle_message_sync(chat_id: int, text: str, message_id: int):
         if urls:
             media = [InputMediaPhoto(media=url, caption=text_part[:1024] if i == 0 else None)
                      for i, url in enumerate(urls[:10])]
-            bot.send_media_group(chat_id=chat_id, media=media, reply_to_message_id=message_id)
+            await bot.send_media_group(chat_id=chat_id, media=media, reply_to_message_id=message_id)
             if len(text_part) > 1024:
-                bot.send_message(chat_id=chat_id, text=text_part[1024:], reply_to_message_id=message_id)
+                await bot.send_message(chat_id=chat_id, text=text_part[1024:], reply_to_message_id=message_id)
         else:
-            bot.send_message(chat_id=chat_id, text=text_part, reply_to_message_id=message_id, disable_web_page_preview=True)
+            await bot.send_message(chat_id=chat_id, text=text_part, reply_to_message_id=message_id, disable_web_page_preview=True)
+
+        await bot.close()
 
     except Exception as e:
         print("Ошибка:", e)
         try:
-            bot = Bot(
-                token=os.environ["TELEGRAM_BOT_TOKEN"],
-                request=HTTPXRequest(http_version="1.1")
-            )
-            bot.send_message(
+            bot = Bot(token=os.environ["TELEGRAM_BOT_TOKEN"])
+            await bot.send_message(
                 chat_id=chat_id,
                 text="Техническая заминка 🤖\nПишите сразу @a4k5o6 — он ответит мгновенно!",
                 reply_to_message_id=message_id
             )
+            await bot.close()
         except:
             pass
 
@@ -202,8 +194,17 @@ def webhook():
     text = msg["text"]
     message_id = msg["message_id"]
 
-    # Просто вызываем синхронную функцию
-    handle_message_sync(chat_id, text, message_id)
+    # Правильный асинхронный вызов с созданием нового event loop
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    try:
+        loop.run_until_complete(handle_message_async(chat_id, text, message_id))
+    except Exception as e:
+        print(f"Error in webhook: {e}")
+        return jsonify({"status": "error"}), 500
+    finally:
+        loop.close()
+        
     return jsonify(ok=True)
 
 if __name__ == "__main__":
