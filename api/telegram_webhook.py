@@ -130,8 +130,7 @@ async def handle_message_async(chat_id: int, text: str, message_id: int):
                 "Или сразу к менеджеру → @a4k5o6"
             )
             await bot.send_message(chat_id=chat_id, text=welcome, reply_to_message_id=message_id)
-            await bot.close()
-            return
+            return  # УБРАТЬ await bot.close()
 
         await bot.send_chat_action(chat_id=chat_id, action="typing")
 
@@ -149,8 +148,7 @@ async def handle_message_async(chat_id: int, text: str, message_id: int):
             await bot.send_photo(chat_id=chat_id, photo=url, caption=text_part[:1024], reply_to_message_id=message_id)
             if len(text_part) > 1024:
                 await bot.send_message(chat_id=chat_id, text=text_part[1024:], reply_to_message_id=message_id)
-            await bot.close()
-            return
+            return  # УБРАТЬ await bot.close()
         else:
             urls = []
             text_part = response
@@ -165,7 +163,7 @@ async def handle_message_async(chat_id: int, text: str, message_id: int):
         else:
             await bot.send_message(chat_id=chat_id, text=text_part, reply_to_message_id=message_id, disable_web_page_preview=True)
 
-        await bot.close()
+        # УБРАТЬ await bot.close()
 
     except Exception as e:
         print("Ошибка:", e)
@@ -176,7 +174,7 @@ async def handle_message_async(chat_id: int, text: str, message_id: int):
                 text="Техническая заминка 🤖\nПишите сразу @a4k5o6 — он ответит мгновенно!",
                 reply_to_message_id=message_id
             )
-            await bot.close()
+            # УБРАТЬ await bot.close()
         except:
             pass
 
