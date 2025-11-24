@@ -12,7 +12,17 @@ redis_client = redis.from_url(os.environ["REDIS_URL"])
 def get_chat_history(chat_id: int) -> List[Dict]:
     raw = redis_client.get(f"elaj:chat:{chat_id}")
     if raw:
-        return json.loads(raw)
+        history = json.loads(raw)
+        # === АВТОФИКС: Исправляем типы для совместимости со старыми записями ===
+        for msg in history:
+            for content in msg['content']:
+                if content['type'] == 'input_text':
+                    if msg['role'] == 'user':
+                        content['type'] = 'text'  # Стандарт для user input
+                    elif msg['role'] == 'assistant':
+                        content['type'] = 'output_text'  # Требуется API
+        print(f"Fixed history types for chat {chat_id}: {len(history)} messages")  # Для дебага
+        return history
     return []
 
 def save_chat_history(chat_id: int, history: List[Dict]):
@@ -79,20 +89,20 @@ class WorkflowInput(BaseModel):
     input_as_text: str
 
 async def run_workflow_with_history(chat_id: int, text: str) -> str:
-    # 1. Загружаем историю из Redis
+    # 1. Загружаем историю (с автофиксом типов)
     history: List[Dict] = get_chat_history(chat_id)
 
-    # 2. Добавляем новое сообщение пользователя (type: "text" — стандарт для user input)
+    # 2. Добавляем новое сообщение пользователя (правильный тип)
     user_msg = {
         "role": "user",
-        "content": [{"type": "text", "text": text}]  # ← ИСПРАВЛЕНИЕ: "text" вместо "input_text"
+        "content": [{"type": "text", "text": text}]  # "text" для user
     }
     history.append(user_msg)
 
-    # 3. Ограничиваем длину (экономим токены)
+    # 3. Ограничиваем длину
     history = history[-20:]
 
-    # 4. Запускаем агента с полной историей
+    # 4. Запускаем агента
     with trace("Elaj_agent_1"):
         result = await Runner.run(
             elaj_agent_1,
@@ -106,10 +116,10 @@ async def run_workflow_with_history(chat_id: int, text: str) -> str:
 
     response_text = result.final_output_as(str)
 
-    # 5. Сохраняем ответ бота (type: "output_text" — как требует API)
+    # 5. Сохраняем ответ (правильный тип)
     assistant_msg = {
         "role": "assistant",
-        "content": [{"type": "output_text", "text": response_text}]  # ← ИСПРАВЛЕНИЕ: "output_text"
+        "content": [{"type": "output_text", "text": response_text}]  # "output_text" для assistant
     }
     history.append(assistant_msg)
     save_chat_history(chat_id, history)
@@ -120,15 +130,15 @@ async def run_workflow_with_history(chat_id: int, text: str) -> str:
 app = Flask(__name__)
 
 async def handle_message_async(chat_id: int, text: str, message_id: int):
-    bot = None  # Инициализируем заранее
+    bot = None
     try:
         bot = Bot(token=os.environ["TELEGRAM_BOT_TOKEN"])
 
-        # === КОМАНДА /start — с очисткой истории ===
+        # === /start ===
         if text.strip().lower() == "/start":
             redis_client.delete(f"elaj:chat:{chat_id}")
             welcome = (
-                "Добро пожаловать! 🌊\n\n"
+                "Добро пожаловать обратно 🌊\n\n"
                 "Я — Эладж, ваш личный агент по премиум-недвижимости на черноморском побережье Аджарии.\n\n"
                 "• Первая линия моря\n"
                 "• Видовые апартаменты с доходностью 10–12% годовых\n"
@@ -150,10 +160,9 @@ async def handle_message_async(chat_id: int, text: str, message_id: int):
 
         await bot.send_chat_action(chat_id=chat_id, action="typing")
 
-        # Запуск агента с историей
         response = await run_workflow_with_history(chat_id, text)
 
-        # === Обработка фото/альбомов ===
+        # === Фото/альбомы ===
         if response.startswith("[photos:"):
             urls = [u.strip() for u in response.split("]", 1)[0][8:].split("|") if u.strip()]
             text_part = response.split("]", 1)[1].strip() if "]" in response else ""
@@ -187,8 +196,8 @@ async def handle_message_async(chat_id: int, text: str, message_id: int):
                 text="Техническая заминка 🤖\nПишите сразу @a4k5o6 — он ответит мгновенно!",
                 reply_to_message_id=message_id
             )
-        except:
-            pass
+        except Exception as e2:
+            print("Ошибка в fallback:", e2)
 
 # ==================== WEBHOOK ====================
 @app.route('/api/telegram_webhook', methods=['POST', 'GET'])
