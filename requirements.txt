@@ -3,3 +3,4 @@ openai
 flask
 pydantic
 openai-agents
+redis
