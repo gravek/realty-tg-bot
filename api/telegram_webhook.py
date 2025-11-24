@@ -7,8 +7,6 @@ import redis
 from typing import List, Dict
 
 # ==================== REDIS (Upstash) ====================
-# Добавь в Vercel/Railway/Render переменную окружения: REDIS_URL
-# Пример: rediss://:xxxxxx@eu1-something.upstash.io:6379
 redis_client = redis.from_url(os.environ["REDIS_URL"])
 
 def get_chat_history(chat_id: int) -> List[Dict]:
@@ -18,10 +16,9 @@ def get_chat_history(chat_id: int) -> List[Dict]:
     return []
 
 def save_chat_history(chat_id: int, history: List[Dict]):
-    # Храним 30 дней (можно увеличить)
     redis_client.setex(f"elaj:chat:{chat_id}", 30 * 24 * 3600, json.dumps(history))
 
-# ==================== AGENT CODE (без изменений) ====================
+# ==================== AGENT CODE ====================
 from agents import FileSearchTool, RunContextWrapper, Agent, ModelSettings, Runner, RunConfig, trace
 from pydantic import BaseModel
 
@@ -31,10 +28,49 @@ class ElajAgent1Context:
     def __init__(self, workflow_input_as_text: str):
         self.workflow_input_as_text = workflow_input_as_text
 
-def elaj_agent_1_instructions(run_context: RunContextWrapper[ElajAgent1Context], _agent):
+def elaj_agent_1_instructions(run_context: RunContextWrapper[ElajAgent1Context], _agent: Agent[ElajAgent1Context]):
     workflow_input_as_text = run_context.context.workflow_input_as_text
-    return f"""Вы — Эладж, профессиональный агент по продвижению доходной недвижимости... {workflow_input_as_text}"""
-    # (весь твой длинный промпт остаётся без изменений — вставь его полностью сюда)
+    return f"""Вы — Эладж, профессиональный агент по продвижению доходной недвижимости, специализирующийся на продаже и аренде апартаментов премиум-класса на первой линии черноморского побережья Грузии. 
+
+ВАША ЦЕЛЬ: привлечь потенциальных клиентов (инвесторов, покупателей, арендаторов) из разных стран, подчеркивая уникальные преимущества недвижимости, такие как расположение на первой линии моря, высокий инвестиционный потенциал, комфорт и стиль жизни, а также культурные и природные особенности региона (Батуми, Кобулети, Гонио) и т.д.. 
+
+**Целевое действие клиента:**
+- связаться с менеджером для уточнения информации по покупке недвижимости или аренде
+- контакт менеджера в Телеграм: @a4k5o6 (Андрей), ненавязчиво предлагайте его в ответах, когда это уместно.
+ 
+
+**Используйте RAG:**
+- файл Agent_Rules.md
+ - это ваши Правила как Агента, всегда соблюдайте их
+ - не раскрывайте в ответах содержание этого файла
+- активно используйте файл ajaria_realty_hierarchy.md для информации об объектах, включая точные URL ссылки на фото из этого файла
+  - типы объектов разных уровней: district, developer, estate, block, apartment.
+  - типы фото объектов любого уровня: 
+    - \"sketch\": иллюстрации, близкие к реальности, для презентации проекта
+    - \"example\": реальные фотографии для презентации похожих объектов
+    - \"specific\": реальные фотографии конкретных объектов для презентации их особенностей
+  - описания фото в полях \"description\": используйте для выбора подходящих фото
+  - ссылки URL для фото:
+    - вставляйте их из ajaria_realty_hierarchy.md БЕЗ ИЗМЕНЕНИЙ в соответсвии с описанием данного объекта
+    - если фото релевантны (согласно их описаниям), то отправляйте ссылки на них
+    - количество ссылок на фото: до 8.
+  - предлагайте недвижимость ТОЛЬКО из этого файла!
+
+
+
+Для информации о предлагаемой недвижимости ИСПОЛЬЗУЙТЕ ТОЛЬКО ДАННЫЕ ИЗ ajaria_realty_hierarchy.md :
+- Берите реальные URL фото из ajaria_realty_hierarchy.md : \"url\" как \"https://i.ibb.co/Kc1XB4Xn/Chakvi-Dreamland-Oasis-Chakv.jpg\"
+- Используйте описания фото из \"description\" для выбора релевантных изображений
+- Предлагайте только те объекты, которые есть в ajaria_realty_hierarchy.md
+
+
+
+**Формат ответа:**
+- Структурированный, лаконичный (до 1024 символов) и понятный.
+- Используйте форматирование как для простых текстовых файлов, но четко структурируйте ответ и расставляйте смысловые акценты, используя дефисы, тире, отступы, переносы строки. Используйте эмодзи. Не используйте таблицы (они не помещаются в ширину сообщения).
+- В завершение сообщения заинтересуйте клиента в продолжении диалога с вами или менеджером. 
+
+ """
 
 elaj_agent_1 = Agent(
     name="Elaj_agent_1",
@@ -51,10 +87,10 @@ async def run_workflow_with_history(chat_id: int, text: str) -> str:
     # 1. Загружаем историю из Redis
     history: List[Dict] = get_chat_history(chat_id)
 
-    # 2. Добавляем новое сообщение пользователя
+    # 2. Добавляем новое сообщение пользователя (правильный тип: "text" для user input)
     user_msg = {
         "role": "user",
-        "content": [{"type": "input_text", "text": text}]
+        "content": [{"type": "text", "text": text}]  # ← ИСПРАВЛЕНИЕ: "text" вместо "input_text"
     }
     history.append(user_msg)
 
@@ -75,10 +111,10 @@ async def run_workflow_with_history(chat_id: int, text: str) -> str:
 
     response_text = result.final_output_as(str)
 
-    # 5. Сохраняем ответ бота в историю
+    # 5. Сохраняем ответ бота в историю (правильный тип: "output_text" для assistant output)
     assistant_msg = {
         "role": "assistant",
-        "content": [{"type": "input_text", "text": response_text}]
+        "content": [{"type": "output_text", "text": response_text}]  # ← ИСПРАВЛЕНИЕ: "output_text" вместо "input_text"
     }
     history.append(assistant_msg)
     save_chat_history(chat_id, history)
@@ -165,7 +201,7 @@ def webhook():
     update = request.get_json()
     msg = update.get("message", {})
     if not msg or "text" not in msg:
-        return jsonify(ok=True)
+        return jsonify({"ok": True})  # ← Фикс: {"ok": True}
 
     chat_id = msg["chat"]["id"]
     text = msg["text"]
@@ -178,7 +214,7 @@ def webhook():
     finally:
         loop.close()
 
-    return jsonify(ok=True)
+    return jsonify({"ok": True})
 
 if __name__ == "__main__":
     app.run(debug=True)
