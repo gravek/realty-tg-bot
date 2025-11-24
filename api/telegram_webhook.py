@@ -1,36 +1,31 @@
 import os
-import json
 from flask import Flask, request, jsonify
 from telegram import Bot, InputMediaPhoto
 import asyncio
 import redis
-from typing import List, Dict
+import json
 
-# ==================== REDIS (Upstash) ====================
-redis_client = redis.from_url(os.environ["REDIS_URL"])
+# ===== ИНИЦИАЛИЗАЦИЯ REDIS =====
+redis_client = redis.from_url(os.environ.get("REDIS_URL"), decode_responses=True)
 
-def get_chat_history(chat_id: int) -> List[Dict]:
-    raw = redis_client.get(f"elaj:chat:{chat_id}")
-    if raw:
-        return json.loads(raw)
-    return []
-
-def save_chat_history(chat_id: int, history: List[Dict]):
-    redis_client.setex(f"elaj:chat:{chat_id}", 30 * 24 * 3600, json.dumps(history))
-
-# ==================== AGENT CODE ====================
-from agents import FileSearchTool, RunContextWrapper, Agent, ModelSettings, Runner, RunConfig, trace
+# ===== КОД ИЗ elaj_agent_1.py =====
+from agents import FileSearchTool, RunContextWrapper, Agent, ModelSettings, TResponseInputItem, Runner, RunConfig, trace
 from pydantic import BaseModel
 
-file_search = FileSearchTool(vector_store_ids=["vs_691f2fe03e688191b02f782af77e8f9b"])
+# Tool definitions
+file_search = FileSearchTool(
+  vector_store_ids=[
+    "vs_691f2fe03e688191b02f782af77e8f9b"
+  ]
+)
 
 class ElajAgent1Context:
-    def __init__(self, workflow_input_as_text: str):
-        self.workflow_input_as_text = workflow_input_as_text
+  def __init__(self, workflow_input_as_text: str):
+    self.workflow_input_as_text = workflow_input_as_text
 
 def elaj_agent_1_instructions(run_context: RunContextWrapper[ElajAgent1Context], _agent: Agent[ElajAgent1Context]):
-    workflow_input_as_text = run_context.context.workflow_input_as_text
-    return f"""Вы — Эладж, профессиональный агент по продвижению доходной недвижимости, специализирующийся на продаже и аренде апартаментов премиум-класса на первой линии черноморского побережья Грузии. 
+  workflow_input_as_text = run_context.context.workflow_input_as_text
+  return f"""Вы — Эладж, профессиональный агент по продвижению доходной недвижимости, специализирующийся на продаже и аренде апартаментов премиум-класса на первой линии черноморского побережья Грузии. 
 
 ВАША ЦЕЛЬ: привлечь потенциальных клиентов (инвесторов, покупателей, арендаторов) из разных стран, подчеркивая уникальные преимущества недвижимости, такие как расположение на первой линии моря, высокий инвестиционный потенциал, комфорт и стиль жизни, а также культурные и природные особенности региона (Батуми, Кобулети, Гонио) и т.д.. 
 
@@ -73,66 +68,99 @@ def elaj_agent_1_instructions(run_context: RunContextWrapper[ElajAgent1Context],
  """
 
 elaj_agent_1 = Agent(
-    name="Elaj_agent_1",
-    instructions=elaj_agent_1_instructions,
-    model="gpt-4.1",
-    tools=[file_search],
-    model_settings=ModelSettings(temperature=1, top_p=1, max_tokens=1024, store=True)
+  name="Elaj_agent_1",
+  instructions=elaj_agent_1_instructions,
+  model="gpt-4.1",
+  tools=[
+    file_search
+  ],
+  model_settings=ModelSettings(
+    temperature=1,
+    top_p=1,
+    max_tokens=1024,
+    store=True
+  )
 )
 
 class WorkflowInput(BaseModel):
-    input_as_text: str
+  input_as_text: str
 
-async def run_workflow_with_history(chat_id: int, text: str) -> str:
-    # 1. Загружаем историю из Redis
-    history: List[Dict] = get_chat_history(chat_id)
-
-    # 2. Добавляем новое сообщение пользователя (правильный тип: "text" для user input)
-    user_msg = {
+async def run_workflow(workflow_input: WorkflowInput):
+  with trace("Elaj_agent_1"):
+    state = {}
+    workflow = workflow_input.model_dump()
+    conversation_history = [
+      {
         "role": "user",
-        "content": [{"type": "text", "text": text}]  # ← ИСПРАВЛЕНИЕ: "text" вместо "input_text"
+        "content": [
+          {
+            "type": "input_text",
+            "text": workflow["input_as_text"]
+          }
+        ]
+      }
+    ]
+    elaj_agent_1_result_temp = await Runner.run(
+      elaj_agent_1,
+      input=[*conversation_history],
+      run_config=RunConfig(trace_metadata={
+        "__trace_source__": "agent-builder",
+        "workflow_id": "wf_691f400a1a7c8190b2e160dc5cde22bf0a9d46819d43210a"
+      }),
+      context=ElajAgent1Context(workflow_input_as_text=workflow["input_as_text"])
+    )
+
+    conversation_history.extend([item.to_input_item() for item in elaj_agent_1_result_temp.new_items])
+
+    elaj_agent_1_result = {
+      "output_text": elaj_agent_1_result_temp.final_output_as(str)
     }
-    history.append(user_msg)
+    return elaj_agent_1_result
 
-    # 3. Ограничиваем длину (экономим токены + не превышаем лимит модели)
-    history = history[-20:]  # ≈ 10 пар вопрос-ответ
+# ===== ФУНКЦИИ ДЛЯ РАБОТЫ С ИСТОРИЕЙ =====
+def get_chat_history(chat_id: int):
+    """Получить историю сообщений для чата"""
+    key = f"elaj:chat:{chat_id}"
+    history = redis_client.get(key)
+    if history:
+        return json.loads(history)
+    return []
 
-    # 4. Запускаем агента с полной историей
-    with trace("Elaj_agent_1"):
-        result = await Runner.run(
-            elaj_agent_1,
-            input=history,  # ← ВСЯ ИСТОРИЯ!
-            run_config=RunConfig(trace_metadata={
-                "__trace_source__": "agent-builder",
-                "workflow_id": "wf_691f400a1a7c8190b2e160dc5cde22bf0a9d46819d43210a"
-            }),
-            context=ElajAgent1Context(workflow_input_as_text=text)
-        )
+def save_chat_history(chat_id: int, history: list):
+    """Сохранить историю сообщений для чата"""
+    key = f"elaj:chat:{chat_id}"
+    redis_client.setex(key, 86400, json.dumps(history))  # TTL 24 часа
 
-    response_text = result.final_output_as(str)
-
-    # 5. Сохраняем ответ бота в историю (правильный тип: "output_text" для assistant output)
-    assistant_msg = {
-        "role": "assistant",
-        "content": [{"type": "output_text", "text": response_text}]  # ← ИСПРАВЛЕНИЕ: "output_text" вместо "input_text"
-    }
-    history.append(assistant_msg)
+def add_message_to_history(chat_id: int, role: str, content: str):
+    """Добавить сообщение в историю"""
+    history = get_chat_history(chat_id)
+    history.append({
+        "role": role,
+        "content": content,
+        "timestamp": asyncio.get_event_loop().time()
+    })
+    # Ограничиваем историю последними 20 сообщениями
+    if len(history) > 20:
+        history = history[-20:]
     save_chat_history(chat_id, history)
 
-    return response_text
+def clear_chat_history(chat_id: int):
+    """Очистить историю чата"""
+    key = f"elaj:chat:{chat_id}"
+    redis_client.delete(key)
 
-# ==================== TELEGRAM HANDLER ====================
+# ===== TELEGRAM WEBHOOK КОД =====
 app = Flask(__name__)
 
 async def handle_message_async(chat_id: int, text: str, message_id: int):
+    """Полностью асинхронная версия"""
     try:
         bot = Bot(token=os.environ["TELEGRAM_BOT_TOKEN"])
-
-        # /start — сбрасываем историю
+        
+        # Приветствие
         if text.strip().lower() == "/start":
-            redis_client.delete(f"elaj:chat:{chat_id}")
             welcome = (
-                "Добро пожаловать 🌊\n\n"
+                "Добро пожаловать! 🌊\n\n"
                 "Я — Эладж, ваш личный агент по премиум-недвижимости на черноморском побережье Аджарии.\n\n"
                 "• Первая линия моря\n"
                 "• Видовые апартаменты с доходностью 10–12% годовых\n"
@@ -144,26 +172,45 @@ async def handle_message_async(chat_id: int, text: str, message_id: int):
                 "Или пишите сразу менеджеру → @a4k5o6 (Андрей)\n\n"
                 "P.S. Команда /start всегда начинает наш диалог с чистого листа"
             )
-            await bot.send_message(
-                chat_id=chat_id,
-                text=welcome,
-                reply_to_message_id=message_id,
-                disable_web_page_preview=True
-            )
+            # Очищаем историю при команде /start
+            clear_chat_history(chat_id)
+            await bot.send_message(chat_id=chat_id, text=welcome, reply_to_message_id=message_id)
             return
+
+        # Добавляем сообщение пользователя в историю
+        add_message_to_history(chat_id, "user", text)
 
         await bot.send_chat_action(chat_id=chat_id, action="typing")
 
-        # ← Главное изменение: теперь агент получает всю историю
-        response = await run_workflow_with_history(chat_id, text)
+        # Получаем историю для контекста
+        history = get_chat_history(chat_id)
+        
+        # Создаем промпт с историей для лучшего контекста
+        context_text = text
+        if len(history) > 1:
+            # Берем последние 5 сообщений для контекста (кроме текущего)
+            recent_history = history[-6:-1] if len(history) > 6 else history[:-1]
+            context_messages = []
+            for msg in recent_history:
+                role = "Клиент" if msg["role"] == "user" else "Эладж"
+                context_messages.append(f"{role}: {msg['content']}")
+            
+            context_text = "Контекст предыдущего диалога:\n" + "\n".join(context_messages) + f"\n\nТекущий вопрос клиента: {text}"
 
-        # === Обработка фото и альбомов (остаётся как у тебя) ===
+        # Запуск агента из Agents SDK
+        result = await run_workflow(WorkflowInput(input_as_text=context_text))
+        response = result["output_text"]
+
+        # Добавляем ответ ассистента в историю
+        add_message_to_history(chat_id, "assistant", response)
+
+        # Поддержка фото и альбомов
         if response.startswith("[photos:"):
             urls = [u.strip() for u in response.split("]", 1)[0][8:].split("|") if u.strip()]
-            text_part = response.split("]", 1)[1].strip() if "]" in response else ""
+            text_part = response.split("]", 1)[1].strip() if "]" in response[8:] else ""
         elif response.startswith("[photo:"):
             url = response.split("]", 1)[0][7:].strip()
-            text_part = response.split("]", 1)[1].strip() if "]" in response else ""
+            text_part = response.split("]", 1)[1].strip() if "]" in response[7:] else ""
             await bot.send_photo(chat_id=chat_id, photo=url, caption=text_part[:1024], reply_to_message_id=message_id)
             if len(text_part) > 1024:
                 await bot.send_message(chat_id=chat_id, text=text_part[1024:], reply_to_message_id=message_id)
@@ -172,6 +219,7 @@ async def handle_message_async(chat_id: int, text: str, message_id: int):
             urls = []
             text_part = response
 
+        # Альбом до 10 фото
         if urls:
             media = [InputMediaPhoto(media=url, caption=text_part[:1024] if i == 0 else None)
                      for i, url in enumerate(urls[:10])]
@@ -184,37 +232,41 @@ async def handle_message_async(chat_id: int, text: str, message_id: int):
     except Exception as e:
         print("Ошибка:", e)
         try:
+            bot = Bot(token=os.environ["TELEGRAM_BOT_TOKEN"])
             await bot.send_message(
                 chat_id=chat_id,
-                text="Техническая заминка\nПишите сразу @a4k5o6 — он ответит мгновенно!",
+                text="Техническая заминка 🤖\nПишите сразу @a4k5o6 — он ответит мгновенно!",
                 reply_to_message_id=message_id
             )
         except:
             pass
 
-# ==================== WEBHOOK ====================
 @app.route('/api/telegram_webhook', methods=['POST', 'GET'])
 def webhook():
     if request.method == 'GET':
-        return jsonify({"status": "Elaj Bot + Redis history ready"})
-
+        return jsonify({"status": "Elaj Telegram Bot is running"})
+    
     update = request.get_json()
     msg = update.get("message", {})
     if not msg or "text" not in msg:
-        return jsonify({"ok": True})  # ← Фикс: {"ok": True}
+        return jsonify(ok=True)
 
     chat_id = msg["chat"]["id"]
     text = msg["text"]
     message_id = msg["message_id"]
 
+    # Правильный асинхронный вызов с созданием нового event loop
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     try:
         loop.run_until_complete(handle_message_async(chat_id, text, message_id))
+    except Exception as e:
+        print(f"Error in webhook: {e}")
+        return jsonify({"status": "error"}), 500
     finally:
         loop.close()
-
-    return jsonify({"ok": True})
+        
+    return jsonify(ok=True)
 
 if __name__ == "__main__":
     app.run(debug=True)
