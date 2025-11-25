@@ -52,18 +52,21 @@ def elaj_agent_1_instructions(run_context: RunContextWrapper[ElajAgent1Context],
   - предлагайте недвижимость ТОЛЬКО из этого файла!
 
 
-
 Для информации о предлагаемой недвижимости ИСПОЛЬЗУЙТЕ ТОЛЬКО ДАННЫЕ ИЗ ajaria_realty_hierarchy.md :
 - Берите реальные URL фото из ajaria_realty_hierarchy.md : \"url\" как \"https://i.ibb.co/Kc1XB4Xn/Chakvi-Dreamland-Oasis-Chakv.jpg\"
 - Используйте описания фото из \"description\" для выбора релевантных изображений
 - Предлагайте только те объекты, которые есть в ajaria_realty_hierarchy.md
 
 
+ФОРМАТ ВЫВОДА ДЛЯ НЕСКОЛЬКИХ ССЫЛОК URL НА ФОТО:
+[photos: https://i.ibb.co/...|https://i.ibb.co/...|https://i.ibb.co/...]
+Сначала [photos:...], потом ваш текст ответа (максимум 1024 символа)
+
 
 **Формат ответа:**
 - Структурированный, лаконичный (до 1024 символов) и понятный.
 - Используйте форматирование как для простых текстовых файлов, но четко структурируйте ответ и расставляйте смысловые акценты, используя дефисы, тире, отступы, переносы строки. Используйте эмодзи. Не используйте таблицы (они не помещаются в ширину сообщения).
-- В завершение сообщения заинтересуйте клиента в продолжении диалога с вами или менеджером. 
+- В завершение сообщения заинтересуйте клиента в продолжении диалога. 
 
  """
 
@@ -129,7 +132,7 @@ def get_chat_history(chat_id: int):
 def save_chat_history(chat_id: int, history: list):
     """Сохранить историю сообщений для чата"""
     key = f"elaj:chat:{chat_id}"
-    redis_client.setex(key, 86400, json.dumps(history))  # TTL 24 часа
+    redis_client.setex(key, 30 * 24 * 3600, json.dumps(history))  # TTL месяц
 
 def add_message_to_history(chat_id: int, role: str, content: str):
     """Добавить сообщение в историю"""
