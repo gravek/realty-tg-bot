@@ -227,9 +227,10 @@ async def handle_message_async(chat_id: int, text: str, message_id: int):
         if urls:
             media = [InputMediaPhoto(media=url, caption=text_part[:1024] if i == 0 else None)
                      for i, url in enumerate(urls[:10])]
+            print(f"Sending media group with {len(media)} photos: {media}")
             await bot.send_media_group(chat_id=chat_id, media=media, reply_to_message_id=message_id)
             if len(text_part) > 1024:
-                await bot.send_message(chat_id=chat_id, text=text_part[1024:], reply_to_message_id=message_id)
+                await bot.send_message(chat_id=chat_id, text=text_part[1024:], reply_to_message_id=message_id, disable_web_page_preview=True)
         else:
             await bot.send_message(chat_id=chat_id, text=text_part, reply_to_message_id=message_id, disable_web_page_preview=True)
 
