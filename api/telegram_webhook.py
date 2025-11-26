@@ -5,38 +5,31 @@ import asyncio
 import redis
 import json
 import requests  # ← ДОБАВЛЯЕМ ЭТОТ ИМПОРТ
+from agents import FileSearchTool, RunContextWrapper, Agent, ModelSettings, TResponseInputItem, Runner, RunConfig, trace, FunctionTool, function_tool
+
+from pydantic import BaseModel
+
 
 # ===== ИНИЦИАЛИЗАЦИЯ REDIS =====
 redis_client = redis.from_url(os.environ.get("REDIS_URL"), decode_responses=True)
 
 # ===== ПРОСТОЙ ПРОВЕРЯЛЬЩИК ИЗОБРАЖЕНИЙ =====
-from agents import FileSearchTool, RunContextWrapper, Agent, ModelSettings, TResponseInputItem, Runner, RunConfig, trace
-from agents.tools import Tool
-
-class SimpleImageChecker(Tool):
-    """Простой проверяльщик изображений"""
-    
-    name = "simple_image_checker"
-    description = "Быстро проверяет одну ссылку на изображение. Возвращает True если изображение доступно."
-    
-    def run(self, image_url: str) -> bool:
-        try:
-            print(f"🔍 Проверяем изображение: {image_url}")
-            response = requests.head(image_url, timeout=5)
-            is_valid = response.status_code == 200 and response.headers.get('content-type', '').startswith('image/')
-            print(f"✅ Изображение доступно: {is_valid}")
-            return is_valid
-        except Exception as e:
-            print(f"❌ Ошибка проверки изображения: {e}")
-            return False
-
-# Создаем экземпляр tool
-simple_checker = SimpleImageChecker()
+@function_tool
+def check_image_url(image_url: str) -> bool:
+    try:
+        print(f"🔍 Проверяем изображение: {image_url}")
+        response = requests.head(image_url, timeout=5)
+        is_valid = response.status_code == 200 and response.headers.get('content-type', '').startswith('image/')
+        print(f"✅ Изображение доступно: {is_valid}")
+        return is_valid
+    except Exception as e:
+        print(f"❌ Ошибка проверки изображения: {e}")
+        return False
 
 
 # ===== КОД ИЗ elaj_agent_1.py =====
-from agents import FileSearchTool, RunContextWrapper, Agent, ModelSettings, TResponseInputItem, Runner, RunConfig, trace
-from pydantic import BaseModel
+# from agents import FileSearchTool, RunContextWrapper, Agent, ModelSettings, TResponseInputItem, Runner, RunConfig, trace
+# from pydantic import BaseModel
 
 # Tool definitions
 file_search = FileSearchTool(
@@ -125,7 +118,7 @@ elaj_agent_1 = Agent(
   model="gpt-4.1",
   tools=[
     file_search,
-    simple_checker  # ← ВОТ ТУТ ДОБАВИЛИ
+    check_image_url  # ← ВОТ ТУТ ДОБАВИЛИ
   ],
   model_settings=ModelSettings(
     temperature=1,
