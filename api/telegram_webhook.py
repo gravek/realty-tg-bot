@@ -19,12 +19,13 @@ def check_image_url(image_url: str) -> bool:
     try:
         print(f"🔍 Проверяем изображение: {image_url}")
         response = requests.head(image_url, timeout=5)
+        print(f"Status code: {response.status_code}, Response headers: {response.headers.get('content-type', '')}")
         is_valid = response.status_code == 200 and response.headers.get('content-type', '').startswith('image/')
         print(f"✅ Изображение доступно: {is_valid}")
-        return is_valid
+        return str(is_valid)
     except Exception as e:
         print(f"❌ Ошибка проверки изображения: {e}")
-        return False
+        return "False"
 
 
 # ===== КОД ИЗ elaj_agent_1.py =====
@@ -90,15 +91,16 @@ def elaj_agent_1_instructions(run_context: RunContextWrapper[ElajAgent1Context],
 2. Выбери подходящие фото по их описаниям
 3. Для КАЖДОЙ выбранной ссылки вызови simple_image_checker(URL)
 4. Если simple_image_checker вернул False - найди замену
-5. В ответ включи ТОЛЬКО ссылки, для которых simple_image_checker вернул True
+5. В ответ включи ТОЛЬКО ссылки, для которых simple_image_checker вернул "True"
+6. Делай не более 10 проверок ссылок за сессию
 
 **ПРИМЕР ИСПОЛЬЗОВАНИЯ ПРОВЕРКИ:**
 - Выбрал ссылку: https://i.ibb.co/example1.jpg
-- Проверил: simple_image_checker("https://i.ibb.co/example1.jpg") → True ✓
+- Проверил: simple_image_checker("https://i.ibb.co/example1.jpg") → "True" ✓
 - Выбрал ссылку: https://i.ibb.co/example2.jpg  
-- Проверил: simple_image_checker("https://i.ibb.co/example2.jpg") → False ✗
+- Проверил: simple_image_checker("https://i.ibb.co/example2.jpg") → "False" ✗
 - Нашел замену: https://i.ibb.co/example3.jpg
-- Проверил: simple_image_checker("https://i.ibb.co/example3.jpg") → True ✓
+- Проверил: simple_image_checker("https://i.ibb.co/example3.jpg") → "True" ✓
 
 ФОРМАТ ВЫВОДА ДЛЯ ПРОВЕРЕННЫХ ССЫЛОК:
 [photos: https://i.ibb.co/...|https://i.ibb.co/...|https://i.ibb.co/...]
