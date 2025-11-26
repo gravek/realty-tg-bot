@@ -4,9 +4,34 @@ from telegram import Bot, InputMediaPhoto
 import asyncio
 import redis
 import json
+import requests  # ← ДОБАВЛЯЕМ ЭТОТ ИМПОРТ
 
 # ===== ИНИЦИАЛИЗАЦИЯ REDIS =====
 redis_client = redis.from_url(os.environ.get("REDIS_URL"), decode_responses=True)
+
+# ===== ПРОСТОЙ ПРОВЕРЯЛЬЩИК ИЗОБРАЖЕНИЙ =====
+from agents import FileSearchTool, RunContextWrapper, Agent, ModelSettings, TResponseInputItem, Runner, RunConfig, trace, BaseTool  # ← ДОБАВЛЯЕМ BaseTool
+
+class SimpleImageChecker(BaseTool):
+    """Простой проверяльщик изображений"""
+    
+    name = "simple_image_checker"
+    description = "Быстро проверяет одну ссылку на изображение. Возвращает True если изображение доступно."
+    
+    def run(self, image_url: str) -> bool:
+        try:
+            print(f"🔍 Проверяем изображение: {image_url}")
+            response = requests.head(image_url, timeout=5)
+            is_valid = response.status_code == 200 and response.headers.get('content-type', '').startswith('image/')
+            print(f"✅ Изображение доступно: {is_valid}")
+            return is_valid
+        except Exception as e:
+            print(f"❌ Ошибка проверки изображения: {e}")
+            return False
+
+# Создаем экземпляр tool
+simple_checker = SimpleImageChecker()
+
 
 # ===== КОД ИЗ elaj_agent_1.py =====
 from agents import FileSearchTool, RunContextWrapper, Agent, ModelSettings, TResponseInputItem, Runner, RunConfig, trace
@@ -59,9 +84,31 @@ def elaj_agent_1_instructions(run_context: RunContextWrapper[ElajAgent1Context],
 - Перед отправкой ссылки URL убедись, в ее точности (каждый символ на своем месте)
 
 
-ФОРМАТ ВЫВОДА ДЛЯ НЕСКОЛЬКИХ ССЫЛОК URL НА ФОТО:
+**ВАЖНО: ПРОВЕРКА URL ССЫЛОК**
+- После выбора URL фото из ajaria_realty_hierarchy.md ОБЯЗАТЕЛЬНО проверяй их через инструмент simple_image_checker
+- Для проверки каждой ссылки вызывай simple_image_checker отдельно
+- Если ссылка нерабочая (возвращает False), НЕ включай ее в ответ
+- Найди альтернативное фото из того же объекта и проверь его
+- В ответ включай ТОЛЬКО проверенные рабочие ссылки
+
+**ПРОЦЕСС РАБОТЫ С ОБЪЕКТАМИ И ССЫЛКАМИ НА ИХ ФОТО:**
+1. Найди релевантные объекты в ajaria_realty_hierarchy.md
+2. Выбери подходящие фото по их описаниям
+3. Для КАЖДОЙ выбранной ссылки вызови simple_image_checker(URL)
+4. Если simple_image_checker вернул False - найди замену
+5. В ответ включи ТОЛЬКО ссылки, для которых simple_image_checker вернул True
+
+**ПРИМЕР ИСПОЛЬЗОВАНИЯ ПРОВЕРКИ:**
+- Выбрал ссылку: https://i.ibb.co/example1.jpg
+- Проверил: simple_image_checker("https://i.ibb.co/example1.jpg") → True ✓
+- Выбрал ссылку: https://i.ibb.co/example2.jpg  
+- Проверил: simple_image_checker("https://i.ibb.co/example2.jpg") → False ✗
+- Нашел замену: https://i.ibb.co/example3.jpg
+- Проверил: simple_image_checker("https://i.ibb.co/example3.jpg") → True ✓
+
+ФОРМАТ ВЫВОДА ДЛЯ ПРОВЕРЕННЫХ ССЫЛОК:
 [photos: https://i.ibb.co/...|https://i.ibb.co/...|https://i.ibb.co/...]
-Сначала [photos:...], потом ваш текст ответа (максимум 1024 символа)
+Затем ваш текст ответа...
 
 
 **Формат ответа:**
@@ -76,7 +123,8 @@ elaj_agent_1 = Agent(
   instructions=elaj_agent_1_instructions,
   model="gpt-4.1",
   tools=[
-    file_search
+    file_search,
+    simple_checker  # ← ВОТ ТУТ ДОБАВИЛИ
   ],
   model_settings=ModelSettings(
     temperature=1,
