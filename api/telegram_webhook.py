@@ -10,9 +10,10 @@ import requests  # ← ДОБАВЛЯЕМ ЭТОТ ИМПОРТ
 redis_client = redis.from_url(os.environ.get("REDIS_URL"), decode_responses=True)
 
 # ===== ПРОСТОЙ ПРОВЕРЯЛЬЩИК ИЗОБРАЖЕНИЙ =====
-from agents import FileSearchTool, RunContextWrapper, Agent, ModelSettings, TResponseInputItem, Runner, RunConfig, trace, BaseTool  # ← ДОБАВЛЯЕМ BaseTool
+from agents import FileSearchTool, RunContextWrapper, Agent, ModelSettings, TResponseInputItem, Runner, RunConfig, trace
+from agents.tools import Tool
 
-class SimpleImageChecker(BaseTool):
+class SimpleImageChecker(Tool):
     """Простой проверяльщик изображений"""
     
     name = "simple_image_checker"
