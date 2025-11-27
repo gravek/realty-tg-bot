@@ -13,19 +13,63 @@ from pydantic import BaseModel
 # ===== ИНИЦИАЛИЗАЦИЯ REDIS =====
 redis_client = redis.from_url(os.environ.get("REDIS_URL"), decode_responses=True)
 
-# ===== ПРОСТОЙ ПРОВЕРЯЛЬЩИК ИЗОБРАЖЕНИЙ =====
+# ===== ПРОВЕРЯЛЬЩИК ИЗОБРАЖЕНИЙ =====
 @function_tool
-def check_image_url(image_url: str) -> bool:
+def check_image_url(image_url: str) -> str:
     try:
         print(f"🔍 Проверяем изображение: {image_url}")
         response = requests.head(image_url, timeout=5)
-        print(f"Status code: {response.status_code}, Response headers: {response.headers.get('content-type', '')}")
+        # print(f"Status code: {response.status_code}, Response headers: {response.headers.get('content-type', '')}")
         is_valid = response.status_code == 200 and response.headers.get('content-type', '').startswith('image/')
-        print(f"✅ Изображение доступно: {is_valid}")
+        print(f"✅❓ Изображение доступно: {is_valid}")
         return str(is_valid)
     except Exception as e:
         print(f"❌ Ошибка проверки изображения: {e}")
         return "False"
+
+
+# УДАЛИТЬ старый check_image_url
+# ДОБАВИТЬ новый batch-инструмент:
+
+import hashlib
+
+@function_tool
+def check_image_urls_batch(image_urls: list[str]) -> dict[str, str]:
+    """
+    Проверяет до 10 URL за один вызов.
+    Возвращает dict: {"https://...": "True" | "False"}
+    Кэширует каждый результат в Redis на _ дней.
+    """
+    if not image_urls:
+        return {}
+
+    results = {}
+    to_check = []
+
+    for url in image_urls[:10]:
+        url_hash = hashlib.md5(url.encode("utf-8")).hexdigest()
+        cache_key = f"img_check:{url_hash}"
+
+        cached = redis_client.get(cache_key)
+        if cached is not None:
+            results[url] = cached
+        else:
+            to_check.append((url, cache_key))
+
+    # Один проход по сети для всех неизвестных
+    if to_check:
+        for url, ckey in to_check:
+            try:
+                r = requests.head(url, timeout=7, allow_redirects=True)
+                ok = r.status_code == 200 and r.headers.get("content-type", "").startswith("image/")
+                result = str(ok)
+            except Exception:
+                result = "False"
+            results[url] = result
+            redis_client.setex(ckey, 7 * 24 * 3600, result)  # _ дней
+
+    return results
+
 
 
 # ===== КОД ИЗ elaj_agent_1.py =====
@@ -76,35 +120,16 @@ def elaj_agent_1_instructions(run_context: RunContextWrapper[ElajAgent1Context],
 - Предлагайте только те объекты, которые есть в ajaria_realty_hierarchy.md
 - Используйте описания фото из \"description\" для выбора релевантных изображений
 - Берите реальные URL фото из ajaria_realty_hierarchy.md : \"url\" как \"https://i.ibb.co/Kc1XB4Xn/Chakvi-Dreamland-Oasis-Chakv.jpg\"
-- Перед отправкой ссылки URL убедись, в ее точности (каждый символ на своем месте)
+- Перед отправкой ссылки URL убедитесь, в ее точности (каждый символ на своем месте)
 
 
 **ВАЖНО: ПРОВЕРКА URL ССЫЛОК**
-- После выбора URL фото из ajaria_realty_hierarchy.md ОБЯЗАТЕЛЬНО проверяй их через инструмент simple_image_checker
-- Для проверки каждой ссылки вызывай simple_image_checker отдельно
-- Если ссылка нерабочая (возвращает False), НЕ включай ее в ответ
-- Найди альтернативное фото из того же объекта и проверь его
-- В ответ включай ТОЛЬКО проверенные рабочие ссылки
+- После выбора до 8 релевантных фото из ajaria_realty_hierarchy.md
+- ВЫЗЫВАЙТЕ ОДИН РАЗ инструмент check_image_urls_batch со всеми выбранными URL (списком)
+- Получаете JSON со всеми результатами сразу (как {"url1": "True", "url2": "False", ...})
+- В финальный ответ включайте ТОЛЬКО те ссылки, где значение "True" (как для "url1")
+- Если рабочиx ссылок меньше 2 — найдите замены и повторите batch-проверку 1 раз
 
-**ПРОЦЕСС РАБОТЫ С ОБЪЕКТАМИ И ССЫЛКАМИ НА ИХ ФОТО:**
-1. Найди релевантные объекты в ajaria_realty_hierarchy.md
-2. Выбери подходящие фото по их описаниям
-3. Для КАЖДОЙ выбранной ссылки вызови simple_image_checker(URL)
-4. Если simple_image_checker вернул False - найди замену
-5. В ответ включи ТОЛЬКО ссылки, для которых simple_image_checker вернул "True"
-6. Делай не более 10 проверок ссылок за сессию
-
-**ПРИМЕР ИСПОЛЬЗОВАНИЯ ПРОВЕРКИ:**
-- Выбрал ссылку: https://i.ibb.co/example1.jpg
-- Проверил: simple_image_checker("https://i.ibb.co/example1.jpg") → "True" ✓
-- Выбрал ссылку: https://i.ibb.co/example2.jpg  
-- Проверил: simple_image_checker("https://i.ibb.co/example2.jpg") → "False" ✗
-- Нашел замену: https://i.ibb.co/example3.jpg
-- Проверил: simple_image_checker("https://i.ibb.co/example3.jpg") → "True" ✓
-
-ФОРМАТ ВЫВОДА ДЛЯ ПРОВЕРЕННЫХ ССЫЛОК:
-[photos: https://i.ibb.co/...|https://i.ibb.co/...|https://i.ibb.co/...]
-Затем ваш текст ответа...
 
 
 **Формат ответа:**
@@ -114,18 +139,23 @@ def elaj_agent_1_instructions(run_context: RunContextWrapper[ElajAgent1Context],
 
  """
 
+
+
 elaj_agent_1 = Agent(
   name="Elaj_agent_1",
   instructions=elaj_agent_1_instructions,
   model="gpt-4.1",
   tools=[
     file_search,
-    check_image_url  # ← ВОТ ТУТ ДОБАВИЛИ
+    # check_image_url,
+    check_image_urls_batch  # ← кэшированием
   ],
   model_settings=ModelSettings(
     temperature=1,
     top_p=1,
     max_tokens=1024,
+    truncation="auto",
+    metadata={"cache_instructions": True},
     store=True
   )
 )
@@ -153,7 +183,8 @@ async def run_workflow(workflow_input: WorkflowInput):
       input=[*conversation_history],
       run_config=RunConfig(trace_metadata={
         "__trace_source__": "agent-builder",
-        "workflow_id": "wf_691f400a1a7c8190b2e160dc5cde22bf0a9d46819d43210a"
+        "workflow_id": "wf_691f400a1a7c8190b2e160dc5cde22bf0a9d46819d43210a",
+        "enable_prompt_caching": True # для логов
       }),
       context=ElajAgent1Context(workflow_input_as_text=workflow["input_as_text"])
     )
