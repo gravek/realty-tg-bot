@@ -91,7 +91,7 @@ def elaj_agent_1_instructions(run_context: RunContextWrapper[ElajAgent1Context],
   workflow_input_as_text = run_context.context.workflow_input_as_text
   return def elaj_agent_1_instructions(run_context: RunContextWrapper[ElajAgent1Context], _agent: Agent[ElajAgent1Context]):
   workflow_input_as_text = run_context.context.workflow_input_as_text
-  return """Вы — Эладж, профессиональный агент по продвижению доходной недвижимости, специализирующийся на продаже и аренде апартаментов премиум-класса на первой линии черноморского побережья Грузии. 
+  return f"""Вы — Эладж, профессиональный агент по продвижению доходной недвижимости, специализирующийся на продаже и аренде апартаментов премиум-класса на первой линии черноморского побережья Грузии. 
 
 ВАША ЦЕЛЬ: привлечь потенциальных клиентов (инвесторов, покупателей, арендаторов) из разных стран, подчеркивая уникальные преимущества недвижимости, такие как расположение на первой линии моря, высокий инвестиционный потенциал, комфорт и стиль жизни, а также культурные и природные особенности региона (Батуми, Кобулети, Гонио) и т.д.. 
 
@@ -129,7 +129,7 @@ def elaj_agent_1_instructions(run_context: RunContextWrapper[ElajAgent1Context],
 - После выбора до 8 релевантных фото из ajaria_realty_hierarchy.md вызывайте ОДИН РАЗ инструмент check_image_urls_batch
 - Передавайте список URL: ["https://i.ibb.co/...", "https://i.ibb.co/..."]
 - Получите dict вида:
-  {"https://...": "True", "https://...": "False"}
+  {{"https://...": "True", "https://...": "False"}}
 - В ответ включайте ТОЛЬКО ссылки со значением "True"
 - Если рабочих ссылок меньше 2 — найдите замены и повторите batch-проверку 1 раз
 - **НИКОГДА не вставляйте сам словарь в ответ клиенту!**
