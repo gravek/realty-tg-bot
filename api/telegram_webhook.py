@@ -155,7 +155,7 @@ elaj_agent_1 = Agent(
     top_p=1,
     max_tokens=1024,
     truncation="auto",
-    metadata={"cache_instructions": True},
+    # metadata={"cache_instructions": True}, # Аргумент типа "dict[str, bool]" нельзя присвоить параметру "metadata" типа "dict[str, str]
     store=True
   )
 )
