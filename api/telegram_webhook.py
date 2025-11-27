@@ -14,18 +14,18 @@ from pydantic import BaseModel
 redis_client = redis.from_url(os.environ.get("REDIS_URL"), decode_responses=True)
 
 # ===== ПРОВЕРЯЛЬЩИК ИЗОБРАЖЕНИЙ =====
-@function_tool
-def check_image_url(image_url: str) -> str:
-    try:
-        print(f"🔍 Проверяем изображение: {image_url}")
-        response = requests.head(image_url, timeout=5)
-        # print(f"Status code: {response.status_code}, Response headers: {response.headers.get('content-type', '')}")
-        is_valid = response.status_code == 200 and response.headers.get('content-type', '').startswith('image/')
-        print(f"✅❓ Изображение доступно: {is_valid}")
-        return str(is_valid)
-    except Exception as e:
-        print(f"❌ Ошибка проверки изображения: {e}")
-        return "False"
+# @function_tool
+# def check_image_url(image_url: str) -> str:
+#     try:
+#         print(f"🔍 Проверяем изображение: {image_url}")
+#         response = requests.head(image_url, timeout=5)
+#         # print(f"Status code: {response.status_code}, Response headers: {response.headers.get('content-type', '')}")
+#         is_valid = response.status_code == 200 and response.headers.get('content-type', '').startswith('image/')
+#         print(f"✅❓ Изображение доступно: {is_valid}")
+#         return str(is_valid)
+#     except Exception as e:
+#         print(f"❌ Ошибка проверки изображения: {e}")
+#         return "False"
 
 
 # УДАЛИТЬ старый check_image_url
@@ -124,11 +124,13 @@ def elaj_agent_1_instructions(run_context: RunContextWrapper[ElajAgent1Context],
 
 
 **ВАЖНО: ПРОВЕРКА URL ССЫЛОК**
-- После выбора до 8 релевантных фото из ajaria_realty_hierarchy.md
-- ВЫЗЫВАЙТЕ ОДИН РАЗ инструмент check_image_urls_batch со всеми выбранными URL (списком)
-- Получаете JSON со всеми результатами сразу (как {"url1": "True", "url2": "False", ...})
-- В финальный ответ включайте ТОЛЬКО те ссылки, где значение "True" (как для "url1")
+- После выбора до 8 релевантных фото из ajaria_realty_hierarchy.md вызывайте ОДИН РАЗ инструмент check_image_urls_batch
+- Передавайте список URL: ["https://i.ibb.co/...", "https://i.ibb.co/..."]
+- Получите dict вида:
+  {"https://...": "True", "https://...": "False"}
+- В ответ включайте ТОЛЬКО ссылки со значением "True"
 - Если рабочиx ссылок меньше 2 — найдите замены и повторите batch-проверку 1 раз
+- **НИКОГДА не вставляйте сам словарь в ответ клиенту!**
 
 
 
