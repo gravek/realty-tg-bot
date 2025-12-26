@@ -1,26 +1,52 @@
-# realty-tg-bot/api/log_event.py
+# api/log_event.py
+from http.server import BaseHTTPRequestHandler
 import json
-from flask import request, jsonify
-import redis
 import os
+import redis
 
+# Подключаемся к Upstash Redis
 redis_client = redis.from_url(os.environ.get("REDIS_URL"), decode_responses=True)
 
-def handler(event, context=None):
-    if request.method != 'POST':
-        return jsonify({"error": "Method not allowed"}), 405
+class handler(BaseHTTPRequestHandler):
+    def do_POST(self):
+        content_length = int(self.headers['Content-Length'])
+        post_data = self.rfile.read(content_length)
+        
+        try:
+            data = json.loads(post_data)
+            user_id = data.get('user_id')
+            
+            if not user_id:
+                self.send_response(400)
+                self.send_header('Content-type', 'application/json')
+                self.end_headers()
+                self.wfile.write(json.dumps({"error": "No user_id"}).encode())
+                return
 
-    data = request.get_json(silent=True) or {}
-    user_id = data.get('user_id')
-    if not user_id:
-        return jsonify({"error": "No user_id"}), 400
+            # Сохраняем полное событие в список
+            redis_client.rpush(f"user_events:{user_id}", json.dumps(data))
+            
+            # Счётчик событий по типу
+            event_type = data.get('event_type', 'unknown')
+            redis_client.hincrby(f"user_stats:{user_id}", event_type, 1)
+            
+            # Устанавливаем TTL 60 дней
+            redis_client.expire(f"user_events:{user_id}", 60 * 24 * 3600)
+            redis_client.expire(f"user_stats:{user_id}", 60 * 24 * 3600)
 
-    # Сохраняем событие в список (хронология)
-    redis_client.rpush(f"user_events:{user_id}", json.dumps(data))
-    # Опционально: счётчики
-    redis_client.hincrby(f"user_stats:{user_id}", data.get('event_type', 'unknown'), 1)
-    # TTL 60 дней
-    redis_client.expire(f"user_events:{user_id}", 60 * 24 * 3600)
-    redis_client.expire(f"user_stats:{user_id}", 60 * 24 * 3600)
+            self.send_response(200)
+            self.send_header('Content-type', 'application/json')
+            self.end_headers()
+            self.wfile.write(json.dumps({"status": "ok"}).encode())
+        
+        except Exception as e:
+            self.send_response(500)
+            self.send_header('Content-type', 'application/json')
+            self.end_headers()
+            self.wfile.write(json.dumps({"error": str(e)}).encode())
 
-    return jsonify({"status": "ok"})
+    def do_GET(self):
+        self.send_response(405)
+        self.send_header('Content-type', 'application/json')
+        self.end_headers()
+        self.wfile.write(json.dumps({"error": "Method not allowed"}).encode())
