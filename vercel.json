@@ -8,8 +8,12 @@
   ],
   "routes": [
     {
-      "src": "/api/(.*)",
-      "dest": "/api/$1"
+      "src": "/api/telegram_webhook",
+      "dest": "/api/telegram_webhook.py"
+    },
+    {
+      "src": "/api/log_event",
+      "dest": "/api/log_event.py"
     }
   ]
 }
