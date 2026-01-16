@@ -265,9 +265,64 @@ async def handle_message_async(chat_id: int, text: str, message_id: int):
 
         # Получаем историю для контекста
         history = get_chat_history(chat_id)
-        
-        # Создаем промпт с историей для лучшего контекста
-        context_text = text
+
+
+        # Получаем профиль
+        profile_key = f"user_profile:{chat_id}"
+        profile = redis_client.hgetall(profile_key) or {}
+
+        # Проверяем, был ли профиль недавно в истории
+        history = redis_client.lrange(f"chat_history:{chat_id}", -15, -1) or []  # последние 15 сообщений
+        profile_mentioned_recently = any("Профиль пользователя:" in msg for msg in history)
+
+        # Проверяем, изменился ли профиль с последнего раза
+        last_profile_hash = redis_client.get(f"last_profile_hash:{chat_id}")
+        current_profile_str = json.dumps(profile, sort_keys=True)
+        current_hash = hashlib.md5(current_profile_str.encode()).hexdigest()
+
+        profile_changed = last_profile_hash != current_hash
+
+        # Решаем, передавать ли профиль
+        send_profile = profile and (not profile_mentioned_recently or profile_changed)
+
+        # Если передаём — обновляем хэш
+        if send_profile:
+            redis_client.set(f"last_profile_hash:{chat_id}", current_hash, ex=86400)  # 24 часа
+
+        # Формируем текст профиля только если решили передавать
+        profile_text = ""
+        if send_profile:
+            profile_text = (
+                f"Профиль пользователя:\n"
+                f"• Имя: {profile.get('first_name', '—')}\n"
+                f"• Ник: @{profile.get('username', '—')}\n"
+                f"• Язык: {profile.get('language_code', '—')}\n"
+                f"• Страна: {profile.get('country_code', '—')}\n"
+                f"• Последний раз видели: {profile.get('last_seen', '—')}\n"
+            )
+
+            # Если есть бюджет из калькулятора
+            budgets = [float(b) for b in redis_client.lrange(f"user_budgets:{chat_id}", 0, -1) or []]
+            if budgets:
+                min_b = min(budgets)
+                max_b = max(budgets)
+                avg_b = sum(budgets) / len(budgets)
+                profile_text += f"• Бюджет (из калькулятора): ${min_b:,.0f} – ${max_b:,.0f} (ср. ${avg_b:,.0f})\n"
+
+        # Последние действия (как раньше, всегда передаём)
+        events = redis_client.lrange(f"user_events:{chat_id}", -10, -1) or []
+        recent_activity = "\nПоследние действия в мини-приложении:\n" + "\n".join([
+            f"- {json.loads(e)['event_type']} ({json.loads(e).get('details',{}).get('price_category','')})"
+            for e in events
+        ]) if events else ""
+
+        # Итоговый контекст
+        context_text = profile_text + recent_activity + "\n\nТекущий вопрос: " + text
+
+
+
+        # # Создаем промпт с историей для лучшего контекста
+        # context_text = text
         if len(history) > 1:
             # Берем последние 5 сообщений для контекста (кроме текущего)
             recent_history = history[-6:-1] if len(history) > 6 else history[:-1]
