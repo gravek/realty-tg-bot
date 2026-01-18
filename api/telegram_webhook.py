@@ -238,11 +238,6 @@ app = Flask(__name__)
 async def handle_message_async(chat_id: int, text: str, message_id: int, user: dict):
     try:
         bot = Bot(token=os.environ["TELEGRAM_BOT_TOKEN"])
-        
-        # Получаем user info из сообщения (Telegram update)
-        user = msg.get("from", {})  # Здесь msg из webhook, но он не в scope! См. ниже.
-        # ВНИМАНИЕ: msg доступен только в webhook(). Нужно передать msg в handle_message_async.
-        # Поэтому сначала скорректируйте сигнатуру и вызов: async def handle_message_async(chat_id: int, text: str, message_id: int, user: dict):
 
         # Сохраняем/обновляем профиль
         profile_key = f"user_profile:{chat_id}"
@@ -413,6 +408,7 @@ def webhook():
     if not msg or "text" not in msg:
         return jsonify(ok=True)
 
+    user = msg.get("from", {})
     chat_id = msg["chat"]["id"]
     text = msg["text"]
     message_id = msg["message_id"]
