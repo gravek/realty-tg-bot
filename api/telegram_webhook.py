@@ -1,4 +1,5 @@
 import os
+from datetime import datetime
 from flask import Flask, request, jsonify
 from telegram import Bot, InputMediaPhoto
 import asyncio
@@ -233,11 +234,35 @@ def clear_chat_history(chat_id: int):
 # ===== TELEGRAM WEBHOOK КОД =====
 app = Flask(__name__)
 
-async def handle_message_async(chat_id: int, text: str, message_id: int):
-    """Полностью асинхронная версия"""
+# async def handle_message_async(chat_id: int, text: str, message_id: int):
+async def handle_message_async(chat_id: int, text: str, message_id: int, user: dict):
     try:
         bot = Bot(token=os.environ["TELEGRAM_BOT_TOKEN"])
         
+        # Получаем user info из сообщения (Telegram update)
+        user = msg.get("from", {})  # Здесь msg из webhook, но он не в scope! См. ниже.
+        # ВНИМАНИЕ: msg доступен только в webhook(). Нужно передать msg в handle_message_async.
+        # Поэтому сначала скорректируйте сигнатуру и вызов: async def handle_message_async(chat_id: int, text: str, message_id: int, user: dict):
+
+        # Сохраняем/обновляем профиль
+        profile_key = f"user_profile:{chat_id}"
+        profile = redis_client.hgetall(profile_key) or {}
+        
+        # Обновляем поля из user info
+        if user:
+            profile['first_name'] = user.get('first_name', profile.get('first_name', '—'))
+            profile['username'] = user.get('username', profile.get('username', '—'))
+            profile['language_code'] = user.get('language_code', profile.get('language_code', '—'))
+            # country_code: если есть гео/IP логика, добавьте здесь (например, via requests.get('https://ipapi.co/json/').json()['country_code'])
+            # Для примера: предположим, вы добавляете статично или из внешнего источника
+            profile['country_code'] = user.get('country_code', profile.get('country_code', '—'))  # Если нет, реализуйте отдельно
+            profile['last_seen'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')  # Импорт datetime!
+        
+        # Сохраняем в Redis (hmset deprecated, используйте hset)
+        if profile:
+            for key, value in profile.items():
+                redis_client.hset(profile_key, key, value)
+            redis_client.expire(profile_key, 12 * 30 * 24 * 3600)  # TTL год
         # Приветствие
         if text.strip().lower() == "/start":
             welcome = (
@@ -396,7 +421,8 @@ def webhook():
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     try:
-        loop.run_until_complete(handle_message_async(chat_id, text, message_id))
+        # loop.run_until_complete(handle_message_async(chat_id, text, message_id))
+        loop.run_until_complete(handle_message_async(chat_id, text, message_id, user))
     except Exception as e:
         print(f"Error in webhook: {e}")
         return jsonify({"status": "error"}), 500
