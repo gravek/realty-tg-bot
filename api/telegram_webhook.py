@@ -7,9 +7,17 @@ import redis
 import json
 import requests  # ← ДОБАВЛЯЕМ ЭТОТ ИМПОРТ
 from agents import FileSearchTool, RunContextWrapper, Agent, ModelSettings, TResponseInputItem, Runner, RunConfig, trace, FunctionTool, function_tool
-
 from pydantic import BaseModel
+import logging
 
+
+
+# ===== ИНИЦИАЛИЗАЦИЯ ЛОГИРОВАНИЯ =====
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
 
 # ===== ИНИЦИАЛИЗАЦИЯ REDIS =====
 redis_client = redis.from_url(os.environ.get("REDIS_URL"), decode_responses=True)
@@ -245,13 +253,13 @@ async def handle_message_async(chat_id: int, text: str, message_id: int, user: d
         
         # Обновляем поля из user info
         if user:
-            profile['first_name'] = user.get('first_name', profile.get('first_name', '—'))
-            profile['username'] = user.get('username', profile.get('username', '—'))
-            profile['language_code'] = user.get('language_code', profile.get('language_code', '—'))
+            profile['first_name'] = user.get('first_name', profile.get('first_name', 'unknown'))
+            profile['username'] = user.get('username', profile.get('username', 'unknown'))
+            profile['language_code'] = user.get('language_code', profile.get('language_code', 'unknown'))
             # country_code: если есть гео/IP логика, добавьте здесь (например, via requests.get('https://ipapi.co/json/').json()['country_code'])
             # Для примера: предположим, вы добавляете статично или из внешнего источника
-            profile['country_code'] = user.get('country_code', profile.get('country_code', '—'))  # Если нет, реализуйте отдельно
-            profile['last_seen'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')  # Импорт datetime!
+            # profile['country_code'] = user.get('country_code', profile.get('country_code', 'unknown'))  # Если нет, реализуйте отдельно
+            profile['last_seen'] = datetime.now().isoformat()  # Импорт datetime!   .strftime('%Y-%m-%d %H:%M:%S')
         
         # Сохраняем в Redis (hmset deprecated, используйте hset)
         if profile:
@@ -314,11 +322,11 @@ async def handle_message_async(chat_id: int, text: str, message_id: int, user: d
         if send_profile:
             profile_text = (
                 f"Профиль пользователя:\n"
-                f"• Имя: {profile.get('first_name', '—')}\n"
-                f"• Ник: @{profile.get('username', '—')}\n"
-                f"• Язык: {profile.get('language_code', '—')}\n"
-                f"• Страна: {profile.get('country_code', '—')}\n"
-                f"• Последний раз видели: {profile.get('last_seen', '—')}\n"
+                f"• Имя: {profile.get('first_name', 'unknown')}\n"
+                f"• Ник: @{profile.get('username', 'unknown')}\n"
+                f"• Язык: {profile.get('language_code', 'unknown')}\n"
+                # f"• Страна: {profile.get('country_code', 'unknown')}\n"
+                f"• Последний контакт: {profile.get('last_seen', 'unknown')}\n"
             )
 
             # Если есть бюджет из калькулятора
@@ -329,15 +337,46 @@ async def handle_message_async(chat_id: int, text: str, message_id: int, user: d
                 avg_b = sum(budgets) / len(budgets)
                 profile_text += f"• Бюджет (из калькулятора): ${min_b:,.0f} – ${max_b:,.0f} (ср. ${avg_b:,.0f})\n"
 
-        # Последние действия (как раньше, всегда передаём)
-        events = redis_client.lrange(f"user_events:{chat_id}", -10, -1) or []
-        recent_activity = "\nПоследние действия в мини-приложении:\n" + "\n".join([
-            f"- {json.loads(e)['event_type']} ({json.loads(e).get('details',{}).get('price_category','')})"
-            for e in events
-        ]) if events else ""
+        logger.info(f"Profile for chat {chat_id}: \n{profile_text}")
+
+        # Последние действия пользователя в мини-приложении
+        events = redis_client.lrange(f"user_events:{chat_id}", -12, -1) or []  # последние 12
+
+        recent_activity = ""
+        if events:
+            lines = []
+            for raw in reversed(events):  # от старого → к новому
+                try:
+                    e = json.loads(raw)
+                    et = e.get('event_type', 'unknown')
+                    d = e.get('details', {})
+
+                    if et == 'view_apartment':
+                        lines.append(f"просмотрел апартаменты в {d.get('estate','unknown')} ({d.get('district','unknown')})")
+                    elif et in ['click_ask_bot', 'click_ask_manager']:
+                        if 'apartment_id' in d:
+                            lines.append(f"перешёл в чат {'бота' if 'bot' in et else 'менеджера'} из апартаментов в {d.get('estate','unknown')}")
+                        elif 'price_category' in d:
+                            lines.append(f"перешёл в чат {'бота' if 'bot' in et else 'менеджера'} из калькулятора, ценовая категория {d.get('price_category','unknown')}")
+                    elif et == 'use_calculator':
+                        lines.append(f"использовал калькулятор ({d.get('price_category','unknown')})")
+                    elif et == 'focus_district':
+                        lines.append(f"открыл район: {d.get('district_name','unknown')}")
+                    elif et == 'open_estate':
+                        lines.append(f"открыл ЖК: {d.get('estate_name','unknown')} ({d.get('district_name','unknown')})")
+                    # остальные можно пропускать или добавить по желанию
+
+                except Exception:
+                    continue
+
+            if lines:
+                recent_activity = "\nНедавняя активность в приложении:\n• " + "\n• ".join(lines[-6:])  # максимум 6 строк
+                
+        logger.info(f"Recent activity for chat {chat_id}: \n{recent_activity}")
 
         # Итоговый контекст
         context_text = profile_text + recent_activity + "\n\nТекущий вопрос: " + text
+        logger.info(f"Context text for chat {chat_id}: \n{context_text}")
 
 
 
