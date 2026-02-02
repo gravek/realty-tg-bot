@@ -256,15 +256,52 @@ async def handle_message_async(chat_id: int, text: str, message_id: int, user: d
             profile['first_name'] = user.get('first_name', profile.get('first_name', 'unknown'))
             profile['username'] = user.get('username', profile.get('username', 'unknown'))
             profile['language_code'] = user.get('language_code', profile.get('language_code', 'unknown'))
+            profile['last_seen'] = datetime.now().isoformat()  # Импорт datetime!   .strftime('%Y-%m-%d %H:%M:%S')
             # country_code: если есть гео/IP логика, добавьте здесь (например, via requests.get('https://ipapi.co/json/').json()['country_code'])
             # Для примера: предположим, вы добавляете статично или из внешнего источника
             # profile['country_code'] = user.get('country_code', profile.get('country_code', 'unknown'))  # Если нет, реализуйте отдельно
-            profile['last_seen'] = datetime.now().isoformat()  # Импорт datetime!   .strftime('%Y-%m-%d %H:%M:%S')
         
+
+        # Пробуем получить bio и birthdate (не каждый раз)
+        should_fetch_chat = (
+            'bio' not in profile or
+            'birth_day' not in profile or
+            profile.get('last_chat_fetch') is None or
+            (datetime.now() - datetime.fromisoformat(profile['last_chat_fetch'])).total_seconds() > 86400 * 3)  # раз в 3 дня
+
+        if should_fetch_chat:
+            try:
+                chat = await bot.get_chat(chat_id=chat_id)
+
+                # Био / о себе
+                if chat.bio:
+                    profile['bio'] = chat.bio.strip()[:500]  # обрезаем на всякий случай
+
+                # Дата рождения
+                if chat.birthdate:
+                    profile['birth_day']   = str(chat.birthdate.day)
+                    profile['birth_month'] = str(chat.birthdate.month)
+                    if hasattr(chat.birthdate, 'year') and chat.birthdate.year:
+                        profile['birth_year'] = str(chat.birthdate.year)
+
+                # Отмечаем, когда последний раз запрашивали
+                profile['last_chat_fetch'] = datetime.now().isoformat()
+
+                # Логируем для отладки
+                if 'bio' in profile or 'birth_day' in profile:
+                    print(f"Chat {chat_id}: bio={profile.get('bio','—')[:50]}, birth={profile.get('birth_day','—')}.{profile.get('birth_month','—')}")
+
+            except Exception as e:
+                # Чаще всего — бот не в чате, пользователь заблокировал бота и т.д.
+                print(f"get_chat failed for {chat_id}: {e}")
+                # Можно добавить флаг, чтобы не пытаться слишком часто
+                profile['last_chat_fetch'] = datetime.now().isoformat()
+
         # Сохраняем в Redis (hmset deprecated, используйте hset)
         if profile:
             for key, value in profile.items():
-                redis_client.hset(profile_key, key, value)
+                if value is not None:
+                    redis_client.hset(profile_key, key, value)
             redis_client.expire(profile_key, 12 * 30 * 24 * 3600)  # TTL год
         # Приветствие
         if text.strip().lower() == "/start":
@@ -329,6 +366,14 @@ async def handle_message_async(chat_id: int, text: str, message_id: int, user: d
                 f"• Последний контакт: {profile.get('last_seen', 'unknown')}\n"
             )
 
+            if profile.get('bio'):
+                profile_text += f"• О себе: {profile['bio'][:120]}{'...' if len(profile['bio']) > 120 else ''}\n"
+            if profile.get('birth_day'):
+                profile_text += f"• Дата рождения: {profile['birth_day']}.{profile['birth_month']}"
+                if profile.get('birth_year'):
+                    profile_text += f".{profile['birth_year']}"
+                profile_text += "\n"
+
             # Если есть бюджет из калькулятора
             budgets = [float(b) for b in redis_client.lrange(f"user_budgets:{chat_id}", 0, -1) or []]
             if budgets:
@@ -345,33 +390,59 @@ async def handle_message_async(chat_id: int, text: str, message_id: int, user: d
         recent_activity = ""
         if events:
             lines = []
-            for raw in reversed(events):  # от старого → к новому
+            for raw in reversed(events):  # от самого старого к новому в истории
                 try:
                     e = json.loads(raw)
                     et = e.get('event_type', 'unknown')
                     d = e.get('details', {})
 
-                    if et == 'view_apartment':
-                        lines.append(f"просмотрел апартаменты в {d.get('estate','unknown')} ({d.get('district','unknown')})")
-                    elif et in ['click_ask_bot', 'click_ask_manager']:
-                        if 'apartment_id' in d:
-                            lines.append(f"перешёл в чат {'бота' if 'bot' in et else 'менеджера'} из апартаментов в {d.get('estate','unknown')}")
-                        elif 'price_category' in d:
-                            lines.append(f"перешёл в чат {'бота' if 'bot' in et else 'менеджера'} из калькулятора, ценовая категория {d.get('price_category','unknown')}")
-                    elif et == 'use_calculator':
-                        lines.append(f"использовал калькулятор ({d.get('price_category','unknown')})")
+                    # Главная страница
+                    if et == 'open_home':
+                        lines.append("зашёл на главную страницу")
+                    elif et in ['ask_bot_home', 'ask_manager_home']:
+                        lines.append(f"перешёл в чат {'бота' if 'bot' in et else 'менеджера'} с главной страницы")
+
+                    # Районы
+                    elif et == 'open_districts':
+                        lines.append("открыл список районов")
                     elif et == 'focus_district':
-                        lines.append(f"открыл район: {d.get('district_name','unknown')}")
+                        lines.append(f"задержался в районе: {d.get('district_name', d.get('district_key', 'неизвестно'))}")
+                    elif et in ['ask_bot_districts', 'ask_manager_districts']:
+                        lines.append(f"перешёл в чат {'бота' if 'bot' in et else 'менеджера'} со страницы районов")
+
+                    # Комплекс (Estate)
                     elif et == 'open_estate':
-                        lines.append(f"открыл ЖК: {d.get('estate_name','unknown')} ({d.get('district_name','unknown')})")
-                    # остальные можно пропускать или добавить по желанию
+                        lines.append(f"открыл ЖК: {d.get('estate_name', 'неизвестно')} ({d.get('district_name', 'неизвестно')})")
+                    elif et in ['ask_bot_estate', 'ask_manager_estate']:
+                        lines.append(f"перешёл в чат {'бота' if 'bot' in et else 'менеджера'} из ЖК {d.get('estate_name', 'неизвестно')}")
+
+                    # Апартаменты
+                    elif et == 'open_apartment' or et == 'view_apartment':
+                        lines.append(f"просмотрел апартаменты в {d.get('estate', 'неизвестно')} ({d.get('district', 'неизвестно')})")
+                    elif et in ['ask_bot_apartment', 'ask_manager_apartment']:
+                        lines.append(f"перешёл в чат {'бота' if 'bot' in et else 'менеджера'} из апартаментов в {d.get('estate', 'неизвестно')}")
+
+                    # Калькулятор
+                    elif et == 'open_calculator':
+                        lines.append("открыл калькулятор доходности")
+
+                    elif et == 'calculator_budget_stats':
+                        min_b = d.get('budget_min', 'нет данных')
+                        max_b = d.get('budget_max', 'нет данных')
+                        avg_b = d.get('budget_avg', 'нет данных')
+                        lines.append(f"возможный бюджет из калькулятора: ${min_b} – ${max_b} (среднее ${avg_b})")
+
+                    elif et in ['ask_bot_calc', 'ask_manager_calc']:
+                        who = 'бота' if 'bot' in et else 'менеджера'
+                        cat = d.get('price_category', 'неизвестно')
+                        occ = d.get('off_season_occupancy', 'нет данных')
+                        lines.append(f"перешёл в чат {who} из калькулятора (категория {cat}, вне сезона {occ}%)")
 
                 except Exception:
-                    continue
+                    continue  # если сломанный json — пропускаем
 
-            if lines:
-                recent_activity = "\nНедавняя активность в приложении:\n• " + "\n• ".join(lines[-6:])  # максимум 6 строк
-                
+            recent_activity = "\nПоследние действия в мини-приложении:\n" + "\n".join(lines[-10:]) if lines else ""
+              
         logger.info(f"Recent activity for chat {chat_id}: \n{recent_activity}")
 
         # Итоговый контекст
