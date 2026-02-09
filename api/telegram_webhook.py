@@ -251,8 +251,11 @@ async def handle_message_async(chat_id: int, text: str, message_id: int, user: d
         profile_key = f"user_profile:{chat_id}"
         profile = redis_client.hgetall(profile_key) or {}
         
+        # проверяем, нужно ли обновлять профиль (если не сохранен в Redis, нет даты или не обновлялся _ дней)
+        should_fetch_profile = not profile or 'fetched' not in profile or (datetime.now() - datetime.fromisoformat(profile['fetched'])).total_seconds() > 60*60*24 * 7
+
         # Обновляем поля из user info
-        if user:
+        if user and should_fetch_profile:
             profile['first_name'] = user.get('first_name', profile.get('first_name', ''))
             profile['last_name'] = user.get('last_name', profile.get('last_name', ''))
             profile['username'] = user.get('username', profile.get('username', ''))
