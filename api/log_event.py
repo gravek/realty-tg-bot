@@ -44,13 +44,13 @@ class handler(BaseHTTPRequestHandler):
                             "first_name": user_info.get('first_name', ''),
                             "last_name": user_info.get('last_name', ''),
                             "language_code": user_info.get('language_code', 'ru'),
-                            "created_at": datetime.now().isoformat()
+                            "fetched": datetime.now().isoformat()
                         })
                         redis_client.expire(profile_key, 60 * 24 * 3600)  # 60 дней
                     else:
                         # Если user_info пустой — логируем, но не создаём
                         print(f"Warning: Empty user_info for {user_id}")
-                        
+
             redis_client.hincrby(f"user_stats:{user_id}", event_type, 1)
             redis_client.expire(f"user_events:{user_id}", 60 * 24 * 3600)
             redis_client.expire(f"user_stats:{user_id}", 60 * 24 * 3600)

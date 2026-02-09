@@ -253,21 +253,22 @@ async def handle_message_async(chat_id: int, text: str, message_id: int, user: d
         
         # Обновляем поля из user info
         if user:
-            profile['first_name'] = user.get('first_name', profile.get('first_name', 'unknown'))
-            profile['username'] = user.get('username', profile.get('username', 'unknown'))
-            profile['language_code'] = user.get('language_code', profile.get('language_code', 'unknown'))
-            profile['last_seen'] = datetime.now().isoformat()  # Импорт datetime!   .strftime('%Y-%m-%d %H:%M:%S')
+            profile['first_name'] = user.get('first_name', profile.get('first_name', ''))
+            profile['last_name'] = user.get('last_name', profile.get('last_name', ''))
+            profile['username'] = user.get('username', profile.get('username', ''))
+            profile['language_code'] = user.get('language_code', profile.get('language_code', ''))
+            profile['fetched'] = datetime.now().isoformat()  # Импорт datetime!   .strftime('%Y-%m-%d %H:%M:%S')
             # country_code: если есть гео/IP логика, добавьте здесь (например, via requests.get('https://ipapi.co/json/').json()['country_code'])
             # Для примера: предположим, вы добавляете статично или из внешнего источника
             # profile['country_code'] = user.get('country_code', profile.get('country_code', 'unknown'))  # Если нет, реализуйте отдельно
         
 
-        # Пробуем получить bio и birthdate (не каждый раз)
+        # Пробуем получить bio и birthdate (раз в _ суток)
         should_fetch_chat = (
             'bio' not in profile or
             'birth_day' not in profile or
             profile.get('last_chat_fetch') is None or
-            (datetime.now() - datetime.fromisoformat(profile['last_chat_fetch'])).total_seconds() > 86400 * 3)  # раз в 3 дня
+            (datetime.now() - datetime.fromisoformat(profile['last_chat_fetch'])).total_seconds() > 60*60*24 * 3)
 
         if should_fetch_chat:
             try:
