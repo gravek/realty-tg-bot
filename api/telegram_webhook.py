@@ -303,6 +303,8 @@ async def handle_message_async(chat_id: int, text: str, message_id: int, user: d
                 if value is not None:
                     redis_client.hset(profile_key, key, value)
             redis_client.expire(profile_key, 12 * 30 * 24 * 3600)  # TTL год
+
+
         # Приветствие
         if text.strip().lower() == "/start":
             welcome = (

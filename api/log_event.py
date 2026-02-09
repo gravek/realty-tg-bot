@@ -3,6 +3,7 @@ from http.server import BaseHTTPRequestHandler
 import json
 import os
 import redis
+from datetime import datetime
 
 redis_client = redis.from_url(os.environ.get("REDIS_URL"), decode_responses=True)
 
@@ -28,8 +29,28 @@ class handler(BaseHTTPRequestHandler):
                 self._send_response(400, {"error": "No user_id"})
                 return
 
+            profile_key = f"user_profile:{user_id}"
+
+
             redis_client.rpush(f"user_events:{user_id}", json.dumps(data))
             event_type = data.get('event_type', 'unknown')
+
+            if event_type == 'create_profile' and user_id != 'UNRECOGNISED_USER':
+                if not redis_client.exists(profile_key):
+                    user_info = data.get('details', {}).get('user_info', {})
+                    if user_info:
+                        redis_client.hset(profile_key, mapping={
+                            "username": user_info.get('username', ''),
+                            "first_name": user_info.get('first_name', ''),
+                            "last_name": user_info.get('last_name', ''),
+                            "language_code": user_info.get('language_code', 'ru'),
+                            "created_at": datetime.now().isoformat()
+                        })
+                        redis_client.expire(profile_key, 60 * 24 * 3600)  # 60 дней
+                    else:
+                        # Если user_info пустой — логируем, но не создаём
+                        print(f"Warning: Empty user_info for {user_id}")
+                        
             redis_client.hincrby(f"user_stats:{user_id}", event_type, 1)
             redis_client.expire(f"user_events:{user_id}", 60 * 24 * 3600)
             redis_client.expire(f"user_stats:{user_id}", 60 * 24 * 3600)
