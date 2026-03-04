@@ -116,7 +116,7 @@ def elaj_agent_1_instructions(run_context: RunContextWrapper[ElajAgent1Context],
   - типы фото объектов любого уровня: 
     - \"sketch\": иллюстрации, близкие к реальности, для презентации проекта
     - \"example\": реальные фотографии для презентации похожих объектов
-    - \"specific\": реальные фотографии конкретных объектов для презентации их особенностей
+    - \"specific\": техническая категория для сайта, не используйте эти фото для клиентов
   - описания фото в полях \"description\": используйте для выбора подходящих фото
   - ссылки URL для фото:
     - вставляйте их из ajaria_realty_hierarchy.md БЕЗ ИЗМЕНЕНИЙ в соответсвии с описанием данного объекта
@@ -128,13 +128,13 @@ def elaj_agent_1_instructions(run_context: RunContextWrapper[ElajAgent1Context],
 Для информации о предлагаемой недвижимости ИСПОЛЬЗУЙТЕ ТОЛЬКО ДАННЫЕ ИЗ ajaria_realty_hierarchy.md :
 - Предлагайте только те объекты, которые есть в ajaria_realty_hierarchy.md
 - Используйте описания фото из \"description\" для выбора релевантных изображений
-- Берите реальные URL фото из ajaria_realty_hierarchy.md : \"url\" как \"https://i.ibb.co/Kc1XB4Xn/Chakvi-Dreamland-Oasis-Chakv.jpg\"
+- Берите реальные URL фото из ajaria_realty_hierarchy.md : \"url\" как \"https://res.cloudinary.com/dpmxeg2un/image/upload/v1772121523/Batumi-example-4d87e8.jpg\"
 - Перед отправкой ссылки URL убедитесь, в ее точности (каждый символ на своем месте)
 
 
 **ВАЖНО: ПРОВЕРКА URL ССЫЛОК**
 - После выбора до 8 релевантных фото из ajaria_realty_hierarchy.md вызывайте ОДИН РАЗ инструмент check_image_urls_batch
-- Передавайте список URL: ["https://i.ibb.co/...", "https://i.ibb.co/..."]
+- Передавайте на проверку Python-список URL: ["https://res.cloudinary.com/...", "https://res.cloudinary.com/..."]
 - Получите dict вида:
   {{"https://...": "True", "https://...": "False"}}
 - В ответ включайте ТОЛЬКО ссылки со значением "True"
@@ -406,53 +406,53 @@ async def handle_message_async(chat_id: int, text: str, message_id: int, user: d
                     if et == 'open_home':
                         lines.append("зашёл на главную страницу")
                     elif et in ['ask_bot_home', 'ask_manager_home']:
-                        lines.append(f"перешёл в чат {'бота' if 'bot' in et else 'менеджера'} с главной страницы")
+                        lines.append(f"- перешёл в чат {'бота' if 'bot' in et else 'менеджера'} с главной страницы")
 
                     # Районы
                     elif et == 'open_districts':
                         lines.append("открыл список районов")
                     elif et == 'focus_district':
-                        lines.append(f"задержался в районе: {d.get('district_name', d.get('district_key', 'неизвестно'))}")
+                        lines.append(f"- задержался в районе: {d.get('district_name', d.get('district_key', 'неизвестно'))}")
                     elif et in ['ask_bot_districts', 'ask_manager_districts']:
-                        lines.append(f"перешёл в чат {'бота' if 'bot' in et else 'менеджера'} со страницы районов")
+                        lines.append(f"- перешёл в чат {'бота' if 'bot' in et else 'менеджера'} со страницы районов")
 
                     # Комплекс (Estate)
                     elif et == 'open_estate':
-                        lines.append(f"открыл ЖК: {d.get('estate_name', 'неизвестно')} ({d.get('district_name', 'неизвестно')})")
+                        lines.append(f"- открыл комплекс: {d.get('estate_name', 'неизвестно')} ({d.get('district_name', 'неизвестно')})")
                     elif et in ['ask_bot_estate', 'ask_manager_estate']:
-                        lines.append(f"перешёл в чат {'бота' if 'bot' in et else 'менеджера'} из ЖК {d.get('estate_name', 'неизвестно')}")
+                        lines.append(f"- перешёл в чат {'бота' if 'bot' in et else 'менеджера'} из комплекс {d.get('estate_name', 'неизвестно')}")
 
                     # Апартаменты
                     elif et == 'open_apartment' or et == 'view_apartment':
-                        lines.append(f"просмотрел апартаменты в {d.get('estate', 'неизвестно')} ({d.get('district', 'неизвестно')})")
+                        lines.append(f"- просмотрел апартаменты в {d.get('estate', 'неизвестно')} ({d.get('district', 'неизвестно')})")
                     elif et in ['ask_bot_apartment', 'ask_manager_apartment']:
-                        lines.append(f"перешёл в чат {'бота' if 'bot' in et else 'менеджера'} из апартаментов в {d.get('estate', 'неизвестно')}")
+                        lines.append(f"- перешёл в чат {'бота' if 'bot' in et else 'менеджера'} из апартаментов в {d.get('estate', 'неизвестно')}")
 
                     # Калькулятор
                     elif et == 'open_calculator':
-                        lines.append("открыл калькулятор доходности")
+                        lines.append("- открыл калькулятор доходности")
 
                     elif et == 'calculator_budget_stats':
                         min_b = d.get('budget_min', 'нет данных')
                         max_b = d.get('budget_max', 'нет данных')
                         avg_b = d.get('budget_avg', 'нет данных')
-                        lines.append(f"возможный бюджет из калькулятора: ${min_b} – ${max_b} (среднее ${avg_b})")
+                        lines.append(f"- предположительный бюджет: ${min_b} – ${max_b} (среднее ${avg_b})")
 
                     elif et in ['ask_bot_calc', 'ask_manager_calc']:
                         who = 'бота' if 'bot' in et else 'менеджера'
                         cat = d.get('price_category', 'неизвестно')
                         occ = d.get('off_season_occupancy', 'нет данных')
-                        lines.append(f"перешёл в чат {who} из калькулятора (категория {cat}, вне сезона {occ}%)")
+                        lines.append(f"- перешёл в чат {who} из калькулятора (ценовая категория {cat}, вне сезона {occ}%)")
 
                 except Exception:
                     continue  # если сломанный json — пропускаем
 
-            recent_activity = "\nПоследние действия в мини-приложении:\n" + "\n".join(lines[-10:]) if lines else ""
+            recent_activity = "\nПоследние действия в мини-приложении (обратный порядок):\n" + "\n".join(lines[-10:]) if lines else ""
               
         logger.info(f"Recent activity for chat {chat_id}: \n{recent_activity}")
 
         # Итоговый контекст
-        context_text = profile_text + recent_activity + "\n\nТекущий вопрос: " + text
+        context_text = profile_text + recent_activity + "\n\nТекущий вопрос: \n" + text
         logger.info(f"Context text for chat {chat_id}: \n{context_text}")
 
 

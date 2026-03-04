@@ -31,9 +31,13 @@ class handler(BaseHTTPRequestHandler):
 
             profile_key = f"user_profile:{user_id}"
 
+            event_type = data.get('event_type', 'unknown')
+
+            # Если тип сообщения calculator_budget_stats — удудаляем все предыдущие события этого типа для данного пользователя
+            if event_type == "calculator_budget_stats":
+                redis_client.delete(f"user_events:{user_id}:{event_type}")
 
             redis_client.rpush(f"user_events:{user_id}", json.dumps(data))
-            event_type = data.get('event_type', 'unknown')
 
             if event_type == 'create_profile' and user_id != 'UNRECOGNISED_USER':
                 if not redis_client.exists(profile_key):
@@ -51,6 +55,7 @@ class handler(BaseHTTPRequestHandler):
                         # Если user_info пустой — логируем, но не создаём
                         print(f"Warning: Empty user_info for {user_id}")
 
+            # Увеличиваем счетчик событий для данного типа и пользователя, устанавливаем время жизни на _ дней
             redis_client.hincrby(f"user_stats:{user_id}", event_type, 1)
             redis_client.expire(f"user_events:{user_id}", 60 * 24 * 3600)
             redis_client.expire(f"user_stats:{user_id}", 60 * 24 * 3600)
