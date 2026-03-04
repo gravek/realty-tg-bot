@@ -4,6 +4,8 @@ import json
 import os
 import redis
 from datetime import datetime
+import logging
+logger = logging.getLogger("log_event")
 
 redis_client = redis.from_url(os.environ.get("REDIS_URL"), decode_responses=True)
 
@@ -33,11 +35,15 @@ class handler(BaseHTTPRequestHandler):
 
             event_type = data.get('event_type', 'unknown')
 
-            # Если тип сообщения calculator_budget_stats — удудаляем все предыдущие события этого типа для данного пользователя
+            # Если тип сообщения calculator_budget_stats — сохраняем в user_stats по под-ключам (для данного пользователя)
             if event_type == "calculator_budget_stats":
-                redis_client.delete(f"user_events:{user_id}:{event_type}")
+                details = data.get('details', {})
+                for key, value in details.items():
+                    redis_client.hset(f"user_stats:{user_id}", f"calc_{key}", value)
+
 
             redis_client.rpush(f"user_events:{user_id}", json.dumps(data))
+            logger.info(f"Logged event for user {user_id}: {event_type}")
 
             if event_type == 'create_profile' and user_id != 'UNRECOGNISED_USER':
                 if not redis_client.exists(profile_key):
@@ -66,7 +72,8 @@ class handler(BaseHTTPRequestHandler):
             self._send_response(500, {"error": str(e)})
 
     def do_GET(self):
-        self._send_response(405, {"error": "Method not allowed"})
+        # self._send_response(405, {"error": "Method GET is not allowed"})
+        self._send_response(200, {"status": "ok", "service": "log_event"})
 
     def _send_response(self, status, response_dict):
         self.send_response(status)

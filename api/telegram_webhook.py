@@ -104,7 +104,7 @@ def elaj_agent_1_instructions(run_context: RunContextWrapper[ElajAgent1Context],
 
 **Целевое действие клиента:**
 - связаться с менеджером для уточнения информации по покупке недвижимости или аренде
-- контакт менеджера в Телеграм: @a4k5o6 (Андрей), ненавязчиво предлагайте его в ответах, когда это уместно.
+- контакт менеджера в Телеграм: @ninaabramia97 (Нина), ненавязчиво предлагайте его в ответах, когда это уместно.
  
 
 **Используйте RAG:**
@@ -321,7 +321,7 @@ async def handle_message_async(chat_id: int, text: str, message_id: int, user: d
                 "— Подобрать объект для покупки\n"
                 "— Найти апартаменты для отдыха\n"
                 "— Рассчитать инвестиционную доходность\n\n"
-                "Или пишите сразу менеджеру → @a4k5o6 (Андрей)\n\n"
+                "Или пишите сразу менеджеру → @ninaabramia97 (Нина)\n\n"
                 "P.S. Команда /start всегда начинает наш диалог с чистого листа"
             )
             # Очищаем историю при команде /start
@@ -394,6 +394,9 @@ async def handle_message_async(chat_id: int, text: str, message_id: int, user: d
         events = redis_client.lrange(f"user_events:{chat_id}", -12, -1) or []  # последние 12
 
         recent_activity = ""
+        # будем отправлять только последнее событие calculator_budget_stats
+        skip_calc_budget_stats = False
+
         if events:
             lines = []
             for raw in reversed(events):  # от самого старого к новому в истории
@@ -432,12 +435,12 @@ async def handle_message_async(chat_id: int, text: str, message_id: int, user: d
                     elif et == 'open_calculator':
                         lines.append("- открыл калькулятор доходности")
 
-                    elif et == 'calculator_budget_stats':
+                    elif et == 'calculator_budget_stats' and not skip_calc_budget_stats:
                         min_b = d.get('budget_min', 'нет данных')
                         max_b = d.get('budget_max', 'нет данных')
                         avg_b = d.get('budget_avg', 'нет данных')
                         lines.append(f"- предположительный бюджет: ${min_b} – ${max_b} (среднее ${avg_b})")
-
+                        skip_calc_budget_stats = True  # Устанавливаем флаг, чтобы не отправлять другие события calculator_budget_stats
                     elif et in ['ask_bot_calc', 'ask_manager_calc']:
                         who = 'бота' if 'bot' in et else 'менеджера'
                         cat = d.get('price_category', 'неизвестно')
