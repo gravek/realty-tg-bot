@@ -2,7 +2,11 @@
   "version": 2,
   "builds": [
     {
-      "src": "api/**/*.py",
+      "src": "api/telegram_webhook.py",
+      "use": "@vercel/python"
+    },
+    {
+      "src": "api/log_event.py",
       "use": "@vercel/python"
     }
   ],
